@@ -112,8 +112,8 @@ hr.sep{border:0;border-top:1px dashed var(--panel-border);margin:6px 0}
     function err() {}
 
     // ---- request queue (prevents HTTP/2 stream resets) ----
-const FETCH_MAX_CONCURRENT = 4;     // 2 requests in flight
-const FETCH_STEP_MS = 800;         // one every ~1.2s
+const FETCH_MAX_CONCURRENT = 10;     // 2 requests in flight
+const FETCH_STEP_MS = 500;         // one every ~1.2s
 let _q = [];
 let _inFlight = 0;
 
