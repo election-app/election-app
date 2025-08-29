@@ -104,6 +104,34 @@ hr.sep{border:0;border-top:1px dashed var(--panel-border);margin:6px 0}
 </div>
 
 <script>
+    
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    const MAX_CONCURRENCY = 20;  // how many requests at the same time
+    let active = 0;
+    const queue = [];
+
+    function enqueueFetch(fn) {
+      return new Promise((resolve, reject) => {
+        queue.push({fn, resolve, reject});
+        runNext();
+      });
+    }
+
+    function runNext() {
+      if (active >= MAX_CONCURRENCY || queue.length === 0) return;
+      const {fn, resolve, reject} = queue.shift();
+      active++;
+      fn().then(resolve).catch(reject).finally(() => {
+        active--;
+        runNext();
+      });
+      runNext();
+    }
+
+    
     // --- ultra-chatty logger with session stamp ---
     const __SESSION = Math.random().toString(36).slice(2);
     let __seq = 0;
@@ -969,70 +997,39 @@ d3.selectAll("#controls-panel button[data-mode]").on("click",function(){
       });
     }
 
-    async function pollCountiesForRace(race, year){
-      // don't start a new pass if the last one hasn't finished
-      if (countyInFlight[race]) {
-        countyTimers[race] = setTimeout(()=>pollCountiesForRace(race, year), 5000);
-        return;
-      }
-      countyInFlight[race] = true;
+    async function pollCountiesForRace(race, year) {
+      for (const stateCode of Object.values(fipsToPostal)) {
+        for (const countyFeature of countiesFeatures) {
+          const countyName = countyFeature.properties.name;
+          const url = `/results?state=${stateCode}&county=${encodeURIComponent(countyName)}&office=${race}`;
 
-      try {
-        if (year !== currentYear) return;
-        const targetMap = countyCacheByYear[year][race];
-        let failures = [];
-
-        // process in small parallel batches (safe), not huge serial chains
-        const BATCH = 80;                       // <= keep this modest
-        const SLICE = 600;                      // your existing outer stride
-        for (let i=0; i<countiesFeatures.length; i+=SLICE){
-          const batch = countiesFeatures.slice(i, i+SLICE);
-
-          for (let j=0; j<batch.length; j+=BATCH){
-            const chunk = batch.slice(j, j+BATCH);
-            const results = await Promise.all(chunk.map(c => fetchCountyByRace(c, race, targetMap, year)));
-            results.forEach((ok, k) => { if (!ok) failures.push(chunk[k]); });
-          }
-
-          // tiny breath so we don't starve the UI / event loop
-          await new Promise(r => setTimeout(r, 10));
-        }
-
-        // bounded re-passes with exponential jitter, then give up (but keep last-good paint)
-        const MAX_REPASSES = 2;
-        for (let pass=1; pass<=MAX_REPASSES && failures.length; pass++){
-          const next = [];
-          const jitter = 250 + Math.random()*250;   // 250–500ms between slices
-          for (let i=0; i<failures.length; i+=BATCH){
-            const chunk = failures.slice(i, i+BATCH);
-            const results = await Promise.all(chunk.map(c => fetchCountyByRace(c, race, targetMap, year)));
-            results.forEach((ok, k) => { if (!ok) next.push(chunk[k]); });
-            await new Promise(r => setTimeout(r, jitter));
-          }
-          failures = next;
-        }
-
-        // repaint visible geometries using whatever we have (never blank the map)
-        if (race===currentRace && year===currentYear && geoMode==='counties'){
-          const visible = countyLayer.selectAll("path")
-            .filter(function(){return d3.select(this).style("display")!=="none";});
-          visible.attr("fill", d => {
-            const v = targetMap.get(d.id);
-            return v ? colour(v) : "#eee";
-          });
-          refreshNeighborStateFills();
-          if (zoomLevel===0) refreshNationalStateFills();
-          updateCandidatePanel(
-            (zoomLevel===0)?"national":(zoomLevel===1)?"state":"county",
-            (zoomLevel===1 && currentState)?String(currentState.id).padStart(2,"0"):(zoomLevel===2?currentCountyId:null)
+          // Push into the concurrency pool
+          enqueueFetch(() =>
+            fetch(url)
+              .then(r => r.json())
+              .then(data => {
+                if (data.ok) {
+                  // ✅ update your county cache + redraw map
+                  const featId = countyFeature.id;
+                  countyCacheByYear[year][race].set(featId, {
+                    total: data.results.reduce((sum, c) => sum + c.votes, 0),
+                    candidates: data.results.reduce((acc, c) => {
+                      acc[c.name] = { votes: c.votes, party: c.party };
+                      return acc;
+                    }, {})
+                  });
+                  paintMapForRace(year, race);
+                }
+              })
+              .catch(err => console.warn("fetch failed", url, err))
           );
+
+          // --- if you prefer sequential throttle instead of pool, uncomment this ---
+          // await sleep(50);
         }
-      } finally {
-        countyInFlight[race] = false;
-        // schedule the next sweep only after we fully finish the pass
-        countyTimers[race] = setTimeout(()=>pollCountiesForRace(race, year), 10000);
       }
     }
+
 
     async function fetchCountyByRace(county, race, targetMap, year){
       const fips = String(county.id).padStart(5,"0");
