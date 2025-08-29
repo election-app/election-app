@@ -220,6 +220,54 @@ def per_county():
         "results": info["candidates"]
     }), 200
 
+# --- add this bulk endpoint next to /results_state ---
+@app.route("/results_districts")
+def per_districts_bulk():
+    state  = (request.args.get("state") or "").upper()
+    if not state:
+        return jsonify({"ok": False, "error": "missing-params"}), 200
+
+    # hit simulator's districts endpoint (same host/date as BASE_URL/ELECTION_DATE)
+    url_base = f"{BASE_URL}/{ELECTION_DATE}".replace("/v2/elections/", "/v2/districts/")
+    headers  = {"x-api-key": API_KEY}
+    try:
+        resp = requests.get(f"{url_base}?statepostal={state}&level=ru", headers=headers, timeout=6)
+        if resp.status_code != 200:
+            return jsonify({"ok": False, "error": f"upstream-{resp.status_code}"}), 200
+    except Exception as e:
+        return jsonify({"ok": False, "error": "api-unavailable", "detail": str(e)}), 200
+
+    # parse XML into the bulk shape the frontend expects
+    try:
+        root = ET.fromstring(resp.text)
+    except ET.ParseError:
+        return jsonify({"ok": False, "error": "bad-xml"}), 200
+
+    by_geo = {}  # GEOID -> { candidates:[{name,party,votes}], total }
+    for ru in root.iter("ReportingUnit"):
+        geoid = (ru.attrib.get("DistrictId") or "").strip()
+        if not geoid:
+            continue
+        cands = []
+        total = 0
+        for c in ru.findall("Candidate"):
+            votes = _safe_int(c.attrib.get("VoteCount"))
+            first = (c.attrib.get("First","") or "").strip()
+            last  = (c.attrib.get("Last","") or "").strip()
+            full  = f"{first} {last}".strip()
+            party = (c.attrib.get("Party") or "").upper()
+            cands.append({"name": full, "party": party, "votes": votes})
+            total += votes
+        by_geo[geoid] = {"candidates": cands, "total": total}
+
+    return jsonify({
+        "ok": True,
+        "state": state,
+        "office": "H",
+        "districts": by_geo
+    }), 200
+
+
 @app.route("/results_state")
 def per_state_bulk():
     """
