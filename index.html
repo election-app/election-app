@@ -111,7 +111,38 @@ hr.sep{border:0;border-top:1px dashed var(--panel-border);margin:6px 0}
     function warn() {}
     function err() {}
 
+    // ---- request queue (prevents HTTP/2 stream resets) ----
+    const FETCH_MAX_CONCURRENT = 1;     // start super conservative (1 in flight)
+    const FETCH_STEP_MS = 2000;         // 1 request every 2s (tune later)
+    let _q = [];
+    let _inFlight = 0;
 
+    function enqueueFetch(fn){ _q.push(fn); }
+
+    async function _pump(){
+      if (_inFlight >= FETCH_MAX_CONCURRENT) return;
+      const fn = _q.shift();
+      if (!fn) return;
+      _inFlight++;
+      try { await fn(); } catch(e) { /* swallow */ }
+      _inFlight--;
+    }
+
+    // tick the queue at a fixed step; add tiny jitter so bursts don't align
+    setInterval(()=>_pump(), FETCH_STEP_MS + Math.floor(Math.random()*300));
+
+    // wait-until-queue-drains helper for each pass
+    function waitForQueueToDrain(){
+      return new Promise(res=>{
+        const t = setInterval(()=>{
+          if (_q.length === 0 && _inFlight === 0) {
+            clearInterval(t); res();
+          }
+        }, 250);
+      });
+    }
+
+    
     // Global traps for hard-to-catch “white page” sources
     window.addEventListener('error', (e)=>{
       err('window.error', { msg:e.message, src:e.filename, line:e.lineno, col:e.colno, err:e.error });
@@ -980,37 +1011,22 @@ d3.selectAll("#controls-panel button[data-mode]").on("click",function(){
       try {
         if (year !== currentYear) return;
         const targetMap = countyCacheByYear[year][race];
-        let failures = [];
 
-        // process in small parallel batches (safe), not huge serial chains
-        const BATCH = 80;                       // <= keep this modest
-        const SLICE = 600;                      // your existing outer stride
-        for (let i=0; i<countiesFeatures.length; i+=SLICE){
-          const batch = countiesFeatures.slice(i, i+SLICE);
-
-          for (let j=0; j<batch.length; j+=BATCH){
-            const chunk = batch.slice(j, j+BATCH);
-            const results = await Promise.all(chunk.map(c => fetchCountyByRace(c, race, targetMap, year)));
-            results.forEach((ok, k) => { if (!ok) failures.push(chunk[k]); });
-          }
-
-          // tiny breath so we don't starve the UI / event loop
-          await new Promise(r => setTimeout(r, 10));
+        // enqueue one fetch per county; the queue pumps them slowly
+        for (const county of countiesFeatures) {
+          enqueueFetch(async () => {
+            // one try
+            let ok = await fetchCountyByRace(county, race, targetMap, year);
+            // quick retry on transport-level hiccups (HTTP/2 resets, aborts, etc.)
+            if (!ok) {
+              await new Promise(r => setTimeout(r, 800));
+              ok = await fetchCountyByRace(county, race, targetMap, year);
+            }
+          });
         }
 
-        // bounded re-passes with exponential jitter, then give up (but keep last-good paint)
-        const MAX_REPASSES = 2;
-        for (let pass=1; pass<=MAX_REPASSES && failures.length; pass++){
-          const next = [];
-          const jitter = 250 + Math.random()*250;   // 250–500ms between slices
-          for (let i=0; i<failures.length; i+=BATCH){
-            const chunk = failures.slice(i, i+BATCH);
-            const results = await Promise.all(chunk.map(c => fetchCountyByRace(c, race, targetMap, year)));
-            results.forEach((ok, k) => { if (!ok) next.push(chunk[k]); });
-            await new Promise(r => setTimeout(r, jitter));
-          }
-          failures = next;
-        }
+        // wait for the queue to fully drain before repainting/scheduling next pass
+        await waitForQueueToDrain();
 
         // repaint visible geometries using whatever we have (never blank the map)
         if (race===currentRace && year===currentYear && geoMode==='counties'){
@@ -1029,10 +1045,11 @@ d3.selectAll("#controls-panel button[data-mode]").on("click",function(){
         }
       } finally {
         countyInFlight[race] = false;
-        // schedule the next sweep only after we fully finish the pass
+        // schedule the next sweep only after we fully finish this pass
         countyTimers[race] = setTimeout(()=>pollCountiesForRace(race, year), 10000);
       }
     }
+
 
     async function fetchCountyByRace(county, race, targetMap, year){
       const fips = String(county.id).padStart(5,"0");
