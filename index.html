@@ -998,35 +998,27 @@ d3.selectAll("#controls-panel button[data-mode]").on("click",function(){
     }
 
     async function pollCountiesForRace(race, year) {
-      for (const stateCode of Object.values(fipsToPostal)) {
-        for (const countyFeature of countiesFeatures) {
-          const countyName = countyFeature.properties.name;
-          const url = `/results?state=${stateCode}&county=${encodeURIComponent(countyName)}&office=${race}`;
+      for (const countyFeature of countiesFeatures) {
+        const stateCode = countyFeature.properties.state;  // or use FIPS prefix mapping
+        const countyName = countyFeature.properties.name;
 
-          // Push into the concurrency pool
-          enqueueFetch(() =>
-            fetch(url)
-              .then(r => r.json())
-              .then(data => {
-                if (data.ok) {
-                  // ✅ update your county cache + redraw map
-                  const featId = countyFeature.id;
-                  countyCacheByYear[year][race].set(featId, {
-                    total: data.results.reduce((sum, c) => sum + c.votes, 0),
-                    candidates: data.results.reduce((acc, c) => {
-                      acc[c.name] = { votes: c.votes, party: c.party };
-                      return acc;
-                    }, {})
-                  });
-                  paintMapForRace(year, race);
-                }
-              })
-              .catch(err => console.warn("fetch failed", url, err))
-          );
+        if (!stateCode) continue; // skip if unknown
 
-          // --- if you prefer sequential throttle instead of pool, uncomment this ---
-          // await sleep(50);
-        }
+        const url = `/results?state=${stateCode}&county=${encodeURIComponent(countyName)}&office=${race}`;
+
+        enqueueFetch(async () => {
+          const data = await fetch(url).then(r => r.json());
+          if (!data.ok) return;
+
+          const featId = countyFeature.id;
+          countyCacheByYear[year][race].set(featId, {
+            total: data.results.reduce((s, c) => s + c.votes, 0),
+            candidates: Object.fromEntries(
+              data.results.map(c => [c.name, { votes: c.votes, party: c.party }])
+            )
+          });
+          paintMapForRace(year, race);
+        });
       }
     }
 
