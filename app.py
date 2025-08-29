@@ -7,7 +7,8 @@ app = Flask(__name__, static_folder='.', static_url_path='')
 API_KEY       = "4uwfiazjez9koo7aju9ig4zxhr"
 ELECTION_DATE = "2024-11-05"
 import os
-BASE_URL = os.getenv("BASE_URL", "http://localhost:5036/v2/elections")
+BASE_URL = "https://api2-app2.onrender.com/v2/elections"
+
 
 
 @app.after_request
