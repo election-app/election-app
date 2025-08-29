@@ -200,7 +200,16 @@ Promise.all([
     const name = f.properties.NAMELSAD || `District ${geoid.slice(2)}`;
     districtMeta.set(geoid, {state:st, name});
   });
-
+  const districtNumToGeoid = new Map();
+  cdF.forEach(f=>{
+    const stFips = String(f.properties.STATEFP || "").padStart(2,"0");
+    const st = fipsToPostal[stFips];
+    const code2 = String(
+      f.properties.CD119FP || f.properties.CD118FP || f.properties.CDFP || f.properties.CD
+    ).padStart(2,"0");
+    const geoid = String(f.properties.GEOID || "").trim();
+    if (st && code2 && geoid) districtNumToGeoid.set(`${st}-${code2}`, geoid);
+  });
   // draw base layers (neutral) + click handlers
   statesG.selectAll("path").data(statesF).join("path")
     .attr("d", path).attr("fill","#f7f9ff")
@@ -267,33 +276,56 @@ async function fetchStateBulk(stateCode, race){
   }catch(_){ return false; }
 }
 
-async function fetchDistrictBulk(stateCode){
-  const tryUrls = [
-    `/results_cd?state=${stateCode}&office=H`,
-    `/results_districts?state=${stateCode}&office=H`
-  ];
-  let data=null;
-  for (const url of tryUrls){
-    try{ const r = await fetch(url, {cache:'no-store'}); if (r.ok){ data = await r.json(); break; } }catch(_){}
-  }
-  if (!data || !data.ok) return false;
+    // index.html — replace fetchDistrictBulk with this
+    async function fetchDistrictBulk(stateCode){
+      const tryUrls = [
+        `/results_districts?state=${stateCode}&office=H`,
+        // (optional fallback) `/results_cd?state=${stateCode}&district=1`
+      ];
+      let data = null;
 
-  const store = raceDistrictData.H;
-  const src = data.districts || data.cd || {};
-  for (const [geo, info] of Object.entries(src)){
-    const geoid = String(geo).trim();
-    if (!districtIdSet.has(geoid)) continue;
-    const cand = {};
-    (info.candidates||[]).forEach(c=>{
-      const nm = (c.name||'').trim();
-      cand[nm] = { votes:+c.votes||0, party:(c.party||'').toUpperCase() };
-    });
-    const total = Object.values(cand).reduce((s,c)=>s+(c.votes||0),0);
-    store.set(geoid, { candidates:cand, total });
-  }
-  fetchedStatesByRace.H.add(stateCode);
-  return true;
-}
+      for (const url of tryUrls){
+        try{
+          const r = await fetch(url, { cache:'no-store' });
+          if (!r.ok) continue;
+          const j = await r.json();
+          // only accept payloads that are ok and contain bulk districts
+          if (j && j.ok && (j.districts || j.cd)) { data = j; break; }
+        }catch(_){}
+      }
+      if (!data) return false;
+
+      const store = raceDistrictData.H;
+      const src = data.districts || data.cd || {};
+      let accepted = 0;
+
+      for (const [rawKey, info] of Object.entries(src)) {
+        let geoid = String(rawKey).trim();
+
+        if (!districtIdSet.has(geoid)) {
+          // try to coerce: "1", "01", "AL-01", "Congressional District 1"
+          const digits = (geoid.match(/\d+/) || [""])[0].padStart(2,"0");
+          const guess = districtNumToGeoid.get(`${stateCode}-${digits}`);
+          if (guess) geoid = guess;
+        }
+
+        if (!districtIdSet.has(geoid)) continue;
+
+        const cand = {};
+        (info.candidates || []).forEach(c=>{
+          const nm = (c.name||'').trim();
+          cand[nm] = { votes:+c.votes||0, party:(c.party||'').toUpperCase() };
+        });
+        const total = Object.values(cand).reduce((s,c)=>s+(c.votes||0),0);
+        store.set(geoid, { candidates:cand, total });
+        accepted++;
+      }
+
+      fetchedStatesByRace.H.add(stateCode);
+      return accepted > 0;
+    }
+
+
 
 /* --------------------------------- paint ---------------------------------- */
 function mix(a,b,t){ return Math.round(a+(b-a)*t); }
