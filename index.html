@@ -39,7 +39,7 @@ aside{
 }
 #candidate-panel{width:260px;padding:12px}
 #controls-panel{width:160px;border-left:1px solid var(--panel-border);display:flex;flex-direction:column;align-items:center;padding:12px 10px 16px}
-#controls-panel button{width:100%;margin-bottom:8px;padding:6px;font-weight:600;cursor:pointer;border:none;border-radius:4px;background:#e9ecf4}
+#controls-panel button{width:100%;margin-bottom:8px;padding:6px;cursor:pointer;border:none;border-radius:4px;background:#e9ecf4}
 #controls-panel button.active{background:var(--dem);color:#fff}
 #controls-panel .toggle{display:flex;align-items:center;gap:.5rem;margin-top:8px;padding:6px 4px;font-weight:600;user-select:none}
 #controls-panel .toggle input{transform:scale(1.1)}
@@ -61,24 +61,39 @@ button#zoom-out{
 .candidate .info{flex:1;display:flex;flex-direction:column}
 .candidate .info span.name{font-weight:700}
 .candidate .info span.votes{font-size:12px}
-hr.sep{border:0;border-top:1px dashed var(--panel-border);margin:6px 0}
-#region-label{
-    position:absolute;top:10px;left:10px;font-weight:bold;font-size:16px;
-    background:rgba(255,255,255,0.85);padding:4px 8px;border-radius:4px;z-index:10;pointer-events:none;
-}
+/* ---- separators ---- */
+.sep{border:none;border-top:1px solid #e1e7f0;margin:8px 0}
 </style>
 </head>
 <body>
 <header>
-  <h1>NTD News</h1><span>2024 | Race to 270</span>
+  <h1>NTD News – <span id="title-year">2028</span> | Race to 270</h1>
 </header>
 
 <div id="layout">
   <aside id="candidate-panel"></aside>
 
   <div id="map-container">
-    <svg id="map" viewBox="0 0 960 600" preserveAspectRatio="xMidYMid meet"></svg>
-    <div id="region-label"></div>
+    <svg id="svg" viewBox="0 0 960 600" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <filter id="outerShadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feMorphology operator="dilate" radius="4" in="SourceAlpha" result="dilated"/>
+          <feGaussianBlur in="dilated" stdDeviation="18" result="blur"/>
+          <feColorMatrix in="blur" type="matrix"
+            values="0 0 0 0 0
+                    0 0 0 0 0
+                    0 0 0 0 0
+                    0 0 0 0.85 0" result="shadow"/>
+          <feComposite in="shadow" in2="SourceAlpha" operator="out" result="outerOnly"/>
+          <feBlend in="SourceGraphic" in2="outerOnly" mode="normal"/>
+        </filter>
+      </defs>
+      <g id="rootG" filter="url(#outerShadow)">
+        <g id="states"></g>
+        <g id="counties"></g>
+        <g id="districts"></g>
+      </g>
+    </svg>
     <button id="zoom-out">Zoom Out</button>
   </div>
 
@@ -111,66 +126,14 @@ hr.sep{border:0;border-top:1px dashed var(--panel-border);margin:6px 0}
     function warn() {}
     function err() {}
 
-    // ---- request queue (prevents HTTP/2 stream resets) ----
-const FETCH_MAX_CONCURRENT = 40;     // 2 requests in flight
-const FETCH_STEP_MS = 125;         // one every ~1.2s
-let _q = [];
-let _inFlight = 0;
-
-    function enqueueFetch(fn){ _q.push(fn); }
-
-    async function _pump(){
-      if (_inFlight >= FETCH_MAX_CONCURRENT) return;
-      const fn = _q.shift();
-      if (!fn) return;
-      _inFlight++;
-      try { await fn(); } catch(e) { /* swallow */ }
-      _inFlight--;
-    }
-
-    // tick the queue at a fixed step; add tiny jitter so bursts don't align
-    setInterval(()=>_pump(), FETCH_STEP_MS + Math.floor(Math.random()*300));
-
-    // wait-until-queue-drains helper for each pass
-    function waitForQueueToDrain(){
-      return new Promise(res=>{
-        const t = setInterval(()=>{
-          if (_q.length === 0 && _inFlight === 0) {
-            clearInterval(t); res();
-          }
-        }, 250);
-      });
-    }
-
-    
-    // Global traps for hard-to-catch “white page” sources
-    window.addEventListener('error', (e)=>{
-      err('window.error', { msg:e.message, src:e.filename, line:e.lineno, col:e.colno, err:e.error });
-    });
-    window.addEventListener('unhandledrejection', (e)=>{
-      err('unhandledrejection', { reason: String(e.reason) });
-    });
-
-    // periodic heartbeat to see if the UI thread is alive
+    // periodic heartbeat to keep tabs alive and verify rendering loop isn’t dead
     setInterval(()=>{
-      const mem = (performance && performance.memory) ? {
-        jsHeapSizeLimit: performance.memory.jsHeapSizeLimit,
-        totalJSHeapSize: performance.memory.totalJSHeapSize,
-        usedJSHeapSize: performance.memory.usedJSHeapSize
-      } : null;
       log('heartbeat', {
-        zoomLevel, geoMode, currentRace, currentYear,
-        state: currentState && currentState.id,
-        county: currentCountyId, district: currentDistrictId,
-        timers: {
-          countyP: !!countyTimers?.P, countyG: !!countyTimers?.G, countyS: !!countyTimers?.S,
-          districtTimerActive: !!districtTimerH,
-          countyInFlight: { ...countyInFlight }, districtInFlightH
-        },
-        cacheSizes: {
-          county: countyData?.size, district: districtData?.size
-        },
-        mem
+        seq: ++__seq,
+        zoomLevel,
+        race: currentRace,
+        year: currentYear,
+        queue: {len:_q.length, inFlight:_inFlight}
       });
     }, 10000); // every 10s
 
@@ -197,75 +160,80 @@ function stateFipsFromId(id){
   return s.split('-')[0].padStart(2,'0');
 }
 
+/* Name normalization identical to backend for county key matching */
+function __normalizeCountyText(txt){
+  try{
+    let t = (txt||"").toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
+    t = t.replace(/[^\w\s]/g,'').trim();
+    return t;
+  }catch(e){
+    // if normalize isn't available, fall back (older browsers)
+    const map = {'á':'a','à':'a','ä':'a','â':'a','ã':'a','å':'a','č':'c','ç':'c','é':'e','è':'e','ë':'e','ê':'e','í':'i','ì':'i','ï':'i','î':'i','ñ':'n','ó':'o','ò':'o','ö':'o','ô':'o','õ':'o','ř':'r','š':'s','ú':'u','ù':'u','ü':'u','û':'u','ý':'y','ž':'z'};
+    let t = (txt||"").toLowerCase().split('').map(ch=>map[ch]||ch).join('');
+    t = t.replace(/[^\w\s]/g,'').trim();
+    return t;
+  }
+}
+const __SUFFIX_RE = /\s+(city and borough|census area|borough|municipality|parish|county)$/i;
+function __baseCountyName(n){ return __normalizeCountyText(n).replace(__SUFFIX_RE,''); }
+
+// Precomputed index for fast county lookup: "ST:base" -> feature id
+const __countyKeyToId = new Map();
+function buildCountyKeyIndex(){
+  __countyKeyToId.clear();
+  for (const c of countiesFeatures){
+    const fips = String(c.id).padStart(5,'0');
+    const sp = fipsToPostal[fips.slice(0,2)];
+    const key = sp + ':' + __baseCountyName(c.properties.name);
+    __countyKeyToId.set(key, c.id);
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Colour scales
  * ------------------------------------------------------------------ */
 const voteScale = d3.scaleLinear()
-  .domain([-5000000, 0, 5000000])
-  .range(['#0000FF', '#FFFFFF', '#FF0000']);
-const pctScale = d3.scaleLinear()
-  .domain([-30, 0, 30])
-  .range(['#0000FF', '#FFFFFF', '#FF0000']);
-const leaderColor = diff => diff>=0 ? 'var(--gop)' : 'var(--dem)';
+  .domain([0, 5000, 25000, 50000, 100000, 250000, 500000])
+  .range([0.1, .25, .4, .55, .7, .85, 1.0]);
+
+function colour(v){
+  // v = { candidates: { Name:{votes,party}, ... }, total }
+  let dem=0,gop=0,ind=0;
+  for (const k in v.candidates){
+    const c=v.candidates[k];
+    if (c.party==="DEM") dem += (c.votes||0);
+    else if (c.party==="REP") gop += (c.votes||0);
+    else ind += (c.votes||0);
+  }
+  const d = dem, r = gop;
+  if (d===0 && r===0) return "#eee";
+  const pct = d/(d+r);
+  const strength = voteScale(d+r);
+  const mix = (a,b,t)=>Math.round(a+(b-a)*t);
+  const hex=(r,g,b)=>"#"+[r,g,b].map(x=>x.toString(16).padStart(2,"0")).join("");
+
+  const blue=[0,103,203], red=[236,29,25];
+  const rgb = pct>0.5
+    ? [mix(red[0],blue[0],(pct-0.5)*2*strength),mix(red[1],blue[1],(pct-0.5)*2*strength),mix(red[2],blue[2],(pct-0.5)*2*strength)]
+    : [mix(blue[0],red[0],(0.5-pct)*2*strength),mix(blue[1],red[1],(0.5-pct)*2*strength),mix(blue[2],red[2],(0.5-pct)*2*strength)];
+  return hex(...rgb);
+}
 
 /* ------------------------------------------------------------------ *
- * Global state
+ * SVG / projection
  * ------------------------------------------------------------------ */
+const svg=d3.select("#svg");
+const rootG=d3.select("#rootG");
+const statesLayer=d3.select("#states");
+const countyLayer=d3.select("#counties");
+const districtLayer=d3.select("#districts");
 
-let statesFeatures,countiesFeatures,districtFeatures,fipsToPostal;
-let zoomLevel=0,currentState=null,colorMode="vote";
-let currentCountyId=null,currentDistrictId=null;
-let geoMode='counties'; // 'counties' | 'districts'
-
-const svg = d3.select("#map"),
-      rootG = svg.append("g"),
-      nationalStateLayer = rootG.append("g"), // background state fills (national view)
-      countyLayer        = rootG.append("g"),
-      districtLayer      = rootG.append("g").style("display","none"),
-      neighborStateLayer = rootG.append("g"), // neighbor overlays when zoomed in
-      stateShadowLayer   = rootG.append("g").attr("pointer-events","none"), // dedicated shadow
-      activeStateOutline = rootG.append("g").attr("pointer-events","none"), // crisp white outline
-      stateLayer         = rootG.append("g"); // invisible hitboxes on top
-
-/* ---- filters/defs ---- */
-const defs = svg.append("defs");
-
-/* OUTER-ONLY state shadow */
-const outerShadow = defs.append("filter")
-  .attr("id", "outerShadow")
-  .attr("x", "-100%").attr("y", "-100%")
-  .attr("width", "300%").attr("height", "300%");
-const feGrow = outerShadow.append("feMorphology")
-  .attr("in","SourceAlpha").attr("operator","dilate")
-  .attr("radius", SHADOW_CONF.grow).attr("result","dilated");
-const feBlur = outerShadow.append("feGaussianBlur")
-  .attr("in","dilated").attr("stdDeviation", SHADOW_CONF.blur)
-  .attr("result","blurred");
-outerShadow.append("feComposite")
-  .attr("in","blurred").attr("in2","SourceAlpha")
-  .attr("operator","out").attr("result","outer");
-outerShadow.append("feColorMatrix")
-  .attr("in","outer").attr("type","matrix")
-  .attr("values", `0 0 0 0 0  
-                   0 0 0 0 0  
-                   0 0 0 0 0  
-                   0 0 0 ${SHADOW_CONF.opacity} 0`)
-  .attr("result","shadow");
-const feAlphaCurve = outerShadow.append("feComponentTransfer")
-  .attr("in","shadow").attr("result","shadowCurved");
-feAlphaCurve.append("feFuncA")
-  .attr("type","gamma")
-  .attr("amplitude", 1)
-  .attr("exponent", SHADOW_CONF.falloff)
-  .attr("offset", 0);
-outerShadow.append("feMerge").append("feMergeNode").attr("in","shadowCurved");
-
-const projection = d3.geoAlbersUsa().scale(1200).translate([W/2,H/2]);
+const projection = d3.geoAlbersUsa().translate([W/2, H/2]).scale(1200);
 const path = d3.geoPath().projection(projection);
 
-// === Multi-race app state (add near your other globals) ===
-// === Multi-race app state ===
-let currentRace = 'P';               // 'P' | 'G' | 'S' | 'H'
+/* ------------------------------------------------------------------ *
+ * Data caches (year/race keyed)
+ * ------------------------------------------------------------------ */
 let currentYear = 2028;
 
 const countyCacheByYear = {};        // year → { P:Map(), G:Map(), S:Map() }
@@ -282,84 +250,71 @@ let districtData = districtCacheByYear[currentYear].H;
 
 const countyTimers = { P:null, G:null, S:null };
 let districtTimerH = null;           // single loop for House
-let districtInFlightH = false;
-const countyInFlight = { P:false, G:false, S:false };
+let districtInterval = 10000;
 
+/* queue to manage concurrency (kept conservative for Render free tiers) */
+const FETCH_MAX_CONCURRENT = 1;     // start super conservative (1 in flight)
+const FETCH_STEP_MS = 2000;         // 1 request every 2s (tune later)
+let _q = [];
+let _inFlight = 0;
 
+function enqueueFetch(fn){ _q.push(fn); }
 
-
-/* ---- interactive pan & zoom on all levels ---- */
-const zoom = d3.zoom()
-  .scaleExtent([1, 35])
-  .on("zoom", (event) => {
-    rootG.attr("transform", event.transform);
-    const k = event.transform.k;
-    feBlur.attr("stdDeviation", SHADOW_CONF.blur / k);
-    feGrow.attr("radius", SHADOW_CONF.grow / k);
-  });
-svg.call(zoom).call(zoom.transform, d3.zoomIdentity); // init
-
-/* helper: smoothly fit bounds using zoom behavior */
-function zoomToFeature(feature, cap=8){
-  const b = path.bounds(feature),
-        dx = b[1][0] - b[0][0],
-        dy = b[1][1] - b[0][1],
-        x  = (b[0][0] + b[1][0]) / 2,
-        y  = (b[0][1] + b[1][1]) / 2,
-        scale = Math.min(cap, 0.9 / Math.max(dx / W, dy / H)),
-        translate = [W/2 - scale * x, H/2 - scale * y];
-  svg.transition().duration(750)
-     .call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
+async function _pump(){
+  if (_inFlight >= FETCH_MAX_CONCURRENT) return;
+  const fn = _q.shift();
+  if (!fn) return;
+  _inFlight++;
+  try { await fn(); } catch(e) { /* swallow */ }
+  _inFlight--;
 }
 
-let showAllCounties = false;
-const toggleAllEl = document.getElementById("toggle-counties");
-toggleAllEl.addEventListener("change", () => {
-  showAllCounties = toggleAllEl.checked;
-  if (zoomLevel === 0) updateNationalDisplay(); // only affects national
+// tick the queue at a fixed step; add tiny jitter so bursts don't align
+setInterval(()=>_pump(), FETCH_STEP_MS + Math.floor(Math.random()*300));
+
+// wait-until-queue-drains helper for each pass
+function waitForQueueToDrain(){
+  return new Promise(res=>{
+    const t = setInterval(()=>{
+      if (_q.length === 0 && _inFlight === 0) {
+        clearInterval(t); res();
+      }
+    }, 250);
+  });
+}
+
+
+// Global traps for hard-to-catch “white page” sources
+window.addEventListener('error', (e)=>{
+  err('window.error', { msg:e.message, src:e.filename, line:e.lineno, col:e.colno, err:e.error });
 });
-
-/* NEW: Geo unit toggle button */
-const geoBtn = document.getElementById('geo-toggle');
-geoBtn.addEventListener('click', ()=>{
-  geoMode = (geoMode === 'counties') ? 'districts' : 'counties';
-  geoBtn.textContent = (geoMode === 'counties') ? 'Switch to Congressional Districts' : 'Switch to Counties';
-
-  countyLayer.style('display', geoMode === 'counties' ? null : 'none');
-  districtLayer.style('display', geoMode === 'districts' ? null : 'none');
-
-  // re-render current view with same zoom level
-  if (zoomLevel === 0) renderCountry();
-  else if (zoomLevel === 1 && currentState) clickedState(null, currentState);
-  else if (zoomLevel === 2 && currentState) clickedState(null, currentState); // go to state view for consistency
-  // refresh candidate panel immediately when switching geo units
-  const key = (zoomLevel===0) ? null :
-              (zoomLevel===1 && currentState) ? String(currentState.id).padStart(2,"0") :
-              (zoomLevel===2 && geoMode==='counties') ? currentCountyId :
-              (zoomLevel===2 && geoMode==='districts') ? currentDistrictId : null;
-
-  updateCandidatePanel(
-    (zoomLevel===0) ? "national" :
-    (zoomLevel===1) ? "state"    :
-    (geoMode==='counties' ? "county" : "district"),
-    key
-  );
-
+window.addEventListener('unhandledrejection', (e)=>{
+  err('unhandledrejection', { reason: String(e.reason||'') });
 });
 
 /* ------------------------------------------------------------------ *
- * Fetch topojson, then start the polling loop
+ * Load TopoJSON geometry
  * ------------------------------------------------------------------ */
-Promise.all([
-  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json"),
-  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json"),
-  // Working congressional districts TopoJSON (113th Congress) from Mike Bostock’s gist:
-             d3.json("cb_2024_us_cd119_500k.json")
-]).then(([usStates,usCounties,cdTopo])=>{
-  statesFeatures    = topojson.feature(usStates,usStates.objects.states).features;
-  countiesFeatures  = topojson.feature(usCounties,usCounties.objects.counties).features;
+let statesFeatures=[], countiesFeatures=[], districtFeatures=[], fipsToPostal={};
 
-  // Be resilient to different object keys for districts
+Promise.all([
+  d3.json("us-states.topojson"),
+  d3.json("us-counties.topojson"),
+  d3.json("us-cd118.topojson")
+]).then(([stTopo, ctTopo, cdTopo])=>{
+  const stateObj =
+    stTopo.objects?.states ||
+    stTopo.objects?.["us-states"] ||
+    stTopo.objects?.[Object.keys(stTopo.objects)[0]];
+  statesFeatures = topojson.feature(stTopo, stateObj).features;
+
+  const countyObj =
+    ctTopo.objects?.counties ||
+    ctTopo.objects?.["us-counties"] ||
+    ctTopo.objects?.[Object.keys(ctTopo.objects).find(k => /count/i.test(k))] ||
+    ctTopo.objects?.[Object.keys(ctTopo.objects)[0]];
+  countiesFeatures = topojson.feature(ctTopo, countyObj).features;
+
   const districtObj =
     cdTopo.objects?.districts ||
     cdTopo.objects?.["congressional-districts"] ||
@@ -375,8 +330,10 @@ Promise.all([
   });
   ensureStateLayer();  // always-on click hitboxes
   renderCountry();    // national view
+  buildCountyKeyIndex();  // index for bulk state lookups
   startCountyLoops();  // begin polling (district API to be added later)
-  startDistrictLoop(); // H
+  startDistrictLoop(); // House
+
   // after features are built
    log('topo loaded', {
      states: statesFeatures?.length,
@@ -391,814 +348,447 @@ Promise.all([
  * State hitboxes (always present so neighbors are clickable)
  * ------------------------------------------------------------------ */
 function ensureStateLayer(){
-  stateLayer.selectAll("path")
+  statesLayer.selectAll("path")
     .data(statesFeatures, d=>d.id)
     .join("path")
     .attr("id", d => "s" + d.id)
     .attr("d", path)
-    .attr("stroke", "#fff")
-    .attr("stroke-width", d => (zoomLevel > 0 && currentState && d.id === currentState.id) ? 1.5 : 0.5)
+    .attr("fill", "#f7f9ff")
+    .attr("stroke", "#b9c6d7")
+    .attr("stroke-width", 1.2)
     .attr("vector-effect", "non-scaling-stroke")
-    .attr("fill", "#ffffff")
-    .attr("fill-opacity", 0)
-    .on("click", clickedState);
-
-  updateStateHitboxes();
-}
-
-function updateStateHitboxes(){
-  stateLayer.selectAll("path")
-    .style("pointer-events", d => (zoomLevel>0 && currentState && d.id===currentState.id) ? "none" : "all")
-    .attr("cursor", d => (zoomLevel>0 && currentState && d.id===currentState.id) ? "default" : "pointer");
-}
-
-/* ------------------------------------------------------------------ *
- * Rendering helpers
- * ------------------------------------------------------------------ */
-function renderCountry(){
-    log('renderCountry:start', { geoMode, currentRace, zoomLevel });
-  zoomLevel = 0; currentState = null; currentCountyId = null; currentDistrictId=null;
-  svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
-  d3.select("#zoom-out").style("display","none");
-  document.getElementById('region-label').textContent = '';
-
-  // clear overlays
-  activeStateOutline.selectAll("path").remove();
-  stateShadowLayer.selectAll("path").remove();
-
-  // base layers (paths are bound once; visibility controlled later)
-  countyLayer.selectAll("path")
-    .data(countiesFeatures, d => d.id)
-    .join("path")
-    .attr("id", d => "c" + d.id)
-    .attr("d", path)
-    .attr("stroke", "#fff")
-    .attr("stroke-width", .75)
-    .attr("vector-effect", "non-scaling-stroke");
-
-  districtLayer.selectAll("path")
-    .data(districtFeatures, d => d.id)
-    .join("path")
-    .attr("id", d => "d" + d.id)
-    .attr("d", path)
-    .attr("stroke", "#fff")
-    .attr("stroke-width", .75)
-    .attr("vector-effect", "non-scaling-stroke");
-
-  // show state fills underneath in national view
-  drawNationalStates();
-  updateNationalDisplay();
-
-  // remove neighbor overlay (used only when zoomed-in)
-  neighborStateLayer.selectAll("path").remove();
-  stateLayer.selectAll("path").attr("stroke-width", 0.5);
-  updateCandidatePanel("national");
-  updateStateHitboxes();
-
-  // show only the active geometry layer at national view
-  countyLayer.style('display', geoMode === 'counties' ? null : 'none');
-  districtLayer.style('display', geoMode === 'districts' ? null : 'none');
-  log('renderCountry:done', {
-    visibleCounties: countyLayer.selectAll('path')
-      .filter(function(){ return d3.select(this).style('display')!=='none'; }).size(),
-    visibleDistricts: districtLayer.selectAll('path')
-      .filter(function(){ return d3.select(this).style('display')!=='none'; }).size(),
-  });
-}
-
-    function updateNationalDisplay(){
-        log('updateNationalDisplay', { geoMode, showAllCounties, currentRace });
-      if (geoMode === 'counties' && showAllCounties) {
-        countyLayer.selectAll("path")
-          .style("display", null)
-          .style("opacity", 1)
-          .attr("fill", d => {
-            const v = countyData.get(d.id);
-            return v ? colour(v) : "#eee";
-          })
-          .attr("pointer-events","none");
-      } else if (geoMode === 'districts' && currentRace==='H') {
-        districtLayer.selectAll("path")
-          .style("display", null)
-          .style("opacity", 1)
-          .attr("fill", d => {
-            const v = districtData.get(d.id);
-            return v ? colour(v) : "#eee";
-          })
-          .attr("pointer-events","none");
-      } else {
-        countyLayer.selectAll("path")
-          .style("display","none")
-          .style("opacity", 1)
-          .attr("pointer-events","none");
-        districtLayer.selectAll("path")
-          .style("display","none")
-          .style("opacity", 1)
-          .attr("pointer-events","none");
-      }
-      refreshNationalStateFills();
-    }
-
-
-/* --- compute aggregate for a state (sum of its counties) --- */
-function aggregateStateByPrefix(prefix2){
-  const agg = {};
-  let total = 0;
-  countyData.forEach((v, fipsNum)=>{
-    const f = String(fipsNum).padStart(5,"0");
-    if (f.startsWith(prefix2)) {
-      for (const [ln, cv] of Object.entries(v.candidates)) {
-        if (!agg[ln]) agg[ln] = { votes: 0, party: cv.party };
-        agg[ln].votes += (cv.votes||0);
-      }
-      total += v.total||0;
-    }
-  });
-  return { candidates: agg, total };
-}
-
-function stateColour(sf){
-  const prefix = String(sf.id).padStart(2,"0");
-  const agg = aggregateStateByPrefix(prefix);
-  if (!agg.total) return "#eee";
-  return colour(agg);
-}
-
-function drawNationalStates(){
-  nationalStateLayer
-    .attr("pointer-events","none")
-    .selectAll("path")
-    .data(statesFeatures, d=>d.id)
-    .join("path")
-    .attr("d", path)
-    .attr("fill", d => stateColour(d))
-    .attr("stroke", "none")
-    .attr("stroke-width", 0.25);
-}
-
-function refreshNationalStateFills(){
-  if (zoomLevel === 0) {
-    nationalStateLayer.selectAll("path").attr("fill", d => stateColour(d));
-  } else {
-    nationalStateLayer.selectAll("path").remove();
-  }
-}
-
-function drawNeighborStatesOverlay(selectedFeature){
-  const selId = selectedFeature.id;
-  neighborStateLayer
-    .attr("pointer-events","none")
-    .selectAll("path")
-    .data(statesFeatures, d=>d.id)
-    .join("path")
-    .attr("d", path)
-    .attr("fill", d => {
-      if (d.id === selId) return "none";
-      const pref = String(d.id).padStart(2,"0");
-      const agg = aggregateStateByPrefix(pref);
-      if (!agg.total) return "#eee";
-      const trumpVotes  = agg.candidates.Trump?.votes || 0;
-      const harrisVotes = agg.candidates.Harris?.votes || 0;
-      return trumpVotes > harrisVotes ? "var(--gop-light)" : "var(--dem-light)";
-    })
-    .attr("fill-opacity", 1)
-    .attr("stroke", "none")
-    .attr("stroke-width", 0.25);
+    .attr("cursor", "pointer")
+    .on("click", (ev, d) => clickedState(ev, d));
 }
 
 function refreshNeighborStateFills(){
-  if (zoomLevel===0 || !currentState) {
-    neighborStateLayer.selectAll("path").remove();
-    return;
-  }
-  drawNeighborStatesOverlay(currentState);
+  // placeholder for neighbor logic if needed
+}
+
+function refreshNationalStateFills(){
+  // aggregate by state using current countyData
+  const agg = new Map(); // stateFips -> {dem,gop,ind}
+  countyData.forEach((v, id)=>{
+    const fips = String(id).padStart(5,"0");
+    const st = fips.slice(0,2);
+    let a = agg.get(st) || {dem:0,gop:0,ind:0};
+    for (const k in v.candidates){
+      const c=v.candidates[k];
+      if (c.party==="DEM") a.dem += (c.votes||0);
+      else if (c.party==="REP") a.gop += (c.votes||0);
+      else a.ind += (c.votes||0);
+    }
+    agg.set(st,a);
+  });
+  statesLayer.selectAll("path")
+    .attr("fill", d=>{
+      const a=agg.get(String(d.id).padStart(2,"0"));
+      if (!a) return "#f7f9ff";
+      const v={candidates:{}, total: a.dem+a.gop+a.ind};
+      v.candidates["D"]={votes:a.dem,party:"DEM"};
+      v.candidates["R"]={votes:a.gop,party:"REP"};
+      return colour(v);
+    });
 }
 
 /* ------------------------------------------------------------------ *
- * Click behaviors
+ * Renderers
  * ------------------------------------------------------------------ */
-function clickedState(event, sd) {
-  document.getElementById('region-label').textContent = sd.properties.name;
-  zoomLevel = 1;
-  currentState = sd;
-  currentCountyId = null;
-  currentDistrictId = null;
-  nationalStateLayer.selectAll("path").remove();
+let zoomLevel=0, currentState=null, currentCountyId=null, geoMode='counties';
 
-  countyLayer.style('display', geoMode === 'counties' ? null : 'none');
-  districtLayer.style('display', geoMode === 'districts' ? null : 'none');
+function renderCountry(){
+  zoomLevel=0; currentState=null; currentCountyId=null;
 
-  const prefix = String(sd.id).padStart(2,"0");
+  statesLayer.style("display", null);
+  countyLayer.style("display", null);
+  districtLayer.style("display", "none");
 
-  if (geoMode === 'counties') {
-    const inState  = new Set(
-      countiesFeatures
-        .filter(c => String(c.id).padStart(5, "0").startsWith(prefix))
-        .map(d => d.id)
-    );
-    countyLayer.selectAll("path")
-      .data(countiesFeatures, d => d.id)
-      .join("path")
-      .attr("id", d => "c" + d.id)
-      .attr("d", path)
-      .style("display", d => inState.has(d.id) ? null : "none")
-      .attr("fill", d => {
-          const v = countyData.get(d.id);
-          return v ? colour(v) : "#eee";
-      })
-      .attr("stroke", "#fff")
-      .attr("stroke-width", .75)
-      .attr("vector-effect", "non-scaling-stroke")
-      .attr("cursor", d => inState.has(d.id) ? "pointer" : "default")
-      .attr("pointer-events", d => inState.has(d.id) ? "all" : "none")
-      .on("click", (ev, d) => inState.has(d.id) && clickedCountyZoom(ev, d));
-  } else {
-    const inState = new Set(
-      districtFeatures
-        .filter(d => stateFipsFromId(d.id) === prefix)
-        .map(d => d.id)
-    );
-    districtLayer.selectAll("path")
-      .data(districtFeatures, d => d.id)
-      .join("path")
-      .attr("id", d => "d" + d.id)
-      .attr("d", path)
-      .style("display", d => inState.has(d.id) ? null : "none")
-      .attr("fill", d => {
-        const v = districtData.get(d.id); // (future) API-provided district totals
-        return v ? colour(v) : "#eee";
-      })
-      .attr("stroke", "#fff")
-      .attr("stroke-width", .75)
-      .attr("vector-effect", "non-scaling-stroke")
-      .attr("cursor", d => inState.has(d.id) ? "pointer" : "default")
-      .attr("pointer-events", d => inState.has(d.id) ? "all" : "none")
-      .on("click", (ev, d) => inState.has(d.id) && clickedDistrictZoom(ev, d));
+  const showAll = document.getElementById('toggle-counties').checked;
+
+  // show/hide counties
+  const visible = new Set();
+  if (showAll) {
+    countiesFeatures.forEach(c=>visible.add(c.id));
   }
-
-  drawNeighborStatesOverlay(sd);
-
-  stateShadowLayer.selectAll("path")
-    .data([sd])
-    .join("path")
-    .attr("d", path)
-    .attr("fill", "#000")
-    .attr("filter", "url(#outerShadow)");
-
-  activeStateOutline.selectAll("path")
-    .data([sd])
-    .join("path")
-    .attr("d", path)
-    .attr("fill", "none")
-    .attr("stroke", "#fff")
-    .attr("stroke-width", 1.5)
-    .attr("vector-effect", "non-scaling-stroke");
-
-  updateStateHitboxes();
-  zoomToFeature(sd, 8);
-  d3.select("#zoom-out").style("display", "block");
-  updateCandidatePanel("state", prefix);
-  event && event.stopPropagation();
-  stateLayer.selectAll("path")
-    .attr("stroke-width", d => (zoomLevel > 0 && currentState && d.id === currentState.id) ? 1.5 : 0.5);
-}
-
-function clickedCountyZoom(event, cd){
-  const stateCode = String(cd.id).padStart(5,"0").slice(0,2);
-  const state = statesFeatures.find(s => String(s.id).padStart(2,"0") === stateCode);
-  document.getElementById('region-label').textContent =
-    `${cd.properties.name}, ${state?.properties.name || ""}`;
-
-  zoomLevel = 2;
-  currentCountyId = cd.id;
-  nationalStateLayer.selectAll("path").remove();
-
-  const inStatePrefix = stateCode;
   countyLayer.selectAll("path")
-    .style("display", d =>
-      String(d.id).padStart(5,"0").startsWith(inStatePrefix) ? null : "none"
-    )
+    .data(countiesFeatures, d=>d.id)
+    .join("path")
+    .attr("id", d => "c" + d.id)
+    .attr("d", path)
+    .style("display", d => (showAll ? null : "none"))
     .attr("fill", d => {
       const v = countyData.get(d.id);
-      if (!v) return "#eee";
-      if (d.id === cd.id) return colour(v);
-      const trumpVotes  = v.candidates.Trump?.votes || 0;
-      const harrisVotes = v.candidates.Harris?.votes || 0;
-      return trumpVotes > harrisVotes ? "var(--gop-light)" : "var(--dem-light)";
+      return v ? colour(v) : "#eee";
     })
-    .style("opacity", 1)
     .attr("stroke", "#fff")
-    .attr("stroke-width", d => d.id === cd.id ? 1.2 : .75)
+    .attr("stroke-width", .5)
     .attr("vector-effect", "non-scaling-stroke")
-    .attr("pointer-events","all");
+    .attr("cursor", "pointer")
+    .on("click", (ev, d) => clickedCountyZoom(ev, d));
 
-  drawNeighborStatesOverlay(state);
-  stateShadowLayer.selectAll("path").remove();
-
-  updateStateHitboxes();
-  zoomToFeature(cd, 12);
-  d3.select("#zoom-out").style("display","block");
-  updateCandidatePanel("county", cd.id);
-  event.stopPropagation();
-  stateLayer.selectAll("path")
-    .attr("stroke-width", d => (zoomLevel > 0 && currentState && d.id === currentState.id) ? 1.5 : 0.5);
+  document.getElementById("zoom-out").style.display="none";
+  updateCandidatePanel("national", null);
+  refreshNationalStateFills();
 }
 
-function clickedDistrictZoom(event, dd){
-  const sfips = stateFipsFromId(dd.id);
-  const state = statesFeatures.find(s => String(s.id).padStart(2,"0") === sfips);
-  const labelName = dd.properties?.name || `CD ${dd.properties?.district || ''}`;
-  document.getElementById('region-label').textContent =
-    `${labelName || 'District'}, ${state?.properties.name || ""}`;
+function clickedState(ev, d){
+  ev?.stopPropagation?.();
+  zoomLevel=1; currentState=d; currentCountyId=null;
 
-  zoomLevel = 2;
-  currentDistrictId = dd.id;
-  nationalStateLayer.selectAll("path").remove();
+  const bounds=path.bounds(d), dx=bounds[1][0]-bounds[0][0], dy=bounds[1][1]-bounds[0][1];
+  const cx=(bounds[0][0]+bounds[1][0])/2, cy=(bounds[0][1]+bounds[1][1])/2;
+  const scale=Math.max(1, Math.min(35, 0.9/Math.max(dx/W,dy/H)));
+  const translate=[W/2 - scale*cx, H/2 - scale*cy];
 
-  districtLayer.selectAll("path")
-    .style("display", d => stateFipsFromId(d.id) === sfips ? null : "none")
-    .attr("fill", d => {
-      const v = districtData.get(d.id);
-      if (!v) return (d.id === dd.id) ? "#ccc" : "#eee";
-      if (d.id === dd.id) return colour(v);
-      const s = sumParties(v);
-      if (s.IND > s.REP && s.IND > s.DEM) return "var(--ind-light)"; // <-- already fixed in your paste 👍
-      return s.REP > s.DEM ? "var(--gop-light)" : "var(--dem-light)";
-    })
+  rootG.transition().duration(550).attr("transform", `translate(${translate}) scale(${scale})`);
 
+  // counties inside state only
+  const prefix = String(d.id).padStart(2,"0");
+  const inState = new Set(countiesFeatures.filter(c => String(c.id).padStart(5,"0").startsWith(prefix)).map(c => c.id));
+  countyLayer.selectAll("path")
+    .style("display", c => inState.has(c.id) ? null : "none")
+    .attr("fill", c => {
+      const v = countyData.get(c.id);
+      return v ? colour(v) : "#eee";
+    });
 
-    .style("opacity", 1)
-    .attr("stroke", "#fff")
-    .attr("stroke-width", d => d.id === dd.id ? 1.2 : .75)
-    .attr("vector-effect", "non-scaling-stroke")
-    .attr("pointer-events","all");
+  document.getElementById("zoom-out").style.display="inline-block";
+  updateCandidatePanel("state", prefix);
+}
 
-  drawNeighborStatesOverlay(state);
-  stateShadowLayer.selectAll("path").remove();
+function clickedCountyZoom(ev, d){
+  ev?.stopPropagation?.();
+  zoomLevel=2; currentCountyId=d.id;
 
-  updateStateHitboxes();
-  zoomToFeature(dd, 12);
-  d3.select("#zoom-out").style("display","block");
+  const bounds=path.bounds(d), dx=bounds[1][0]-bounds[0][0], dy=bounds[1][1]-bounds[0][1];
+  const cx=(bounds[0][0]+bounds[1][0])/2, cy=(bounds[0][1]+bounds[1][1])/2;
+  const scale=Math.max(4, Math.min(35, 0.95/Math.max(dx/W,dy/H)));
+  const translate=[W/2 - scale*cx, H/2 - scale*cy];
 
-  // For now, keep panel at state level until district API is wired
-  updateCandidatePanel("district", dd.id);
-  event && event.stopPropagation();
-  stateLayer.selectAll("path")
-    .attr("stroke-width", d => (zoomLevel > 0 && currentState && d.id === currentState.id) ? 1.5 : 0.5);
+  rootG.transition().duration(450).attr("transform", `translate(${translate}) scale(${scale})`);
+
+  statesLayer.style("display", "none");
+  const prefix = String(d.id).padStart(5,"0").slice(0,2);
+  const inState = new Set(countiesFeatures.filter(c => String(c.id).padStart(5,"0").startsWith(prefix)).map(c => c.id));
+  countyLayer.selectAll("path")
+    .style("display", c => inState.has(c.id) ? null : "none")
+    .attr("fill", c => {
+      const v = countyData.get(c.id);
+      return v ? colour(v) : "#eee";
+    });
+
+  document.getElementById("zoom-out").style.display="inline-block";
+  updateCandidatePanel("county", d.id);
 }
 
 /* ------------------------------------------------------------------ *
  * Candidate panel
  * ------------------------------------------------------------------ */
-    function updateCandidatePanel(level, key){
-      // Decide which datastore to aggregate from
-      const usingDistricts = (geoMode === 'districts');
+function updateCandidatePanel(level, key){
+  const panel = document.getElementById("candidate-panel");
+  panel.innerHTML = "";
 
-      // helpers
-      function aggFromCounties(filterFn){
-        const agg={}; let total=0;
-        countyData.forEach((v,fips)=>{
-          if(!filterFn(String(fips).padStart(5,"0"))) return;
-          for(const [ln,cv] of Object.entries(v.candidates)){
-            if(!agg[ln]) agg[ln]={votes:0,party:cv.party};
-            agg[ln].votes+=cv.votes||0;
-          }
-          total += v.total||0;
-        });
-        return {agg,total};
+  function aggFromSet(ids){
+    const out = {};
+    let total=0;
+    ids.forEach(id=>{
+      const v=countyData.get(id);
+      if (!v) return;
+      for (const k in v.candidates){
+        const c=v.candidates[k];
+        if (!out[k]) out[k]={votes:0, party:c.party};
+        out[k].votes += (c.votes||0);
+        total += (c.votes||0);
       }
+    });
+    return {out,total};
+  }
 
-      function aggFromDistricts(filterFn){
-        const agg={}; let total=0;
-        districtData.forEach((v,id)=>{
-          const did=String(id);
-          if(!filterFn(did)) return;
-          // we normalized to Trump/Harris/Kennedy already
-          for(const [ln,cv] of Object.entries(v.candidates||{})){
-            if(!agg[ln]) agg[ln]={votes:0,party:cv.party};
-            agg[ln].votes += cv.votes||0;
-          }
-          total += v.total||0;
-        });
-        return {agg,total};
-      }
+  if (level==="national"){
+    const ids = countiesFeatures.map(c=>c.id);
+    const {out,total} = aggFromSet(ids);
+    const sorted = Object.entries(out).sort((a,b)=>b[1].votes-a[1].votes);
+    const title = document.createElement("div");
+    title.innerHTML = `<strong>National – ${document.querySelector(".race.active")?.textContent||""}</strong>`;
+    panel.appendChild(title);
+    panel.appendChild(document.createElement("hr")).className="sep";
+    sorted.forEach(([ln,cv],idx)=>{
+      const pct = total ? ((cv.votes/total)*100).toFixed(1) : "0.0";
+      const div = document.createElement("div");
+      div.className = `candidate ${idx===0?"leader":""} ${
+        cv.party==="REP" ? "gop" :
+        cv.party==="DEM" ? "dem" : "ind"
+      }`;
+      div.innerHTML = `
+        <img src="${imgMap[ln]||'placeholder.png'}" alt="${ln}">
+        <div class="info">
+          <span class="name">${ln}</span>
+          <span class="votes">${cv.votes.toLocaleString()} (${pct}%)</span>
+        </div>`;
+      panel.appendChild(div);
+      panel.appendChild(document.createElement("hr")).className="sep";
+    });
+    return;
+  }
 
-      let agg,total;
+  if (level==="state"){
+    const inState = new Set(
+      countiesFeatures
+        .filter(c => String(c.id).padStart(5,"0").startsWith(key))
+        .map(c => c.id)
+    );
+    const {out,total} = aggFromSet(inState);
+    const sorted = Object.entries(out).sort((a,b)=>b[1].votes-a[1].votes);
+    const title = document.createElement("div");
+    title.innerHTML = `<strong>State</strong>`;
+    panel.appendChild(title);
+    panel.appendChild(document.createElement("hr")).className="sep";
+    sorted.forEach(([ln,cv],idx)=>{
+      const pct = total ? ((cv.votes/total)*100).toFixed(1) : "0.0";
+      const div = document.createElement("div");
+      div.className = `candidate ${idx===0?"leader":""} ${
+        cv.party==="REP" ? "gop" :
+        cv.party==="DEM" ? "dem" : "ind"
+      }`;
+      div.innerHTML = `
+        <img src="${imgMap[ln]||'placeholder.png'}" alt="${ln}">
+        <div class="info">
+          <span class="name">${ln}</span>
+          <span class="votes">${cv.votes.toLocaleString()} (${pct}%)</span>
+        </div>`;
+      panel.appendChild(div);
+      panel.appendChild(document.createElement("hr")).className="sep";
+    });
+    return;
+  }
 
-      if (!usingDistricts) {
-        // counties path (unchanged behavior)
-        if (level==="national"){
-          ({agg,total}=aggFromCounties(()=>true));
-        } else if (level==="state"){
-          const pref2 = key; // 2-digit state fips prefix
-          ({agg,total}=aggFromCounties(f=>f.startsWith(pref2)));
-        } else if (level==="county"){
-          ({agg,total}=aggFromCounties(f=>f===String(key).padStart(5,"0")));
-        }
-      } else {
-        // districts path
-        if (level==="national"){
-          ({agg,total}=aggFromDistricts(()=>true));
-        } else if (level==="state"){
-          const pref2 = key; // 2-digit state fips prefix
-          ({agg,total}=aggFromDistricts(did=>stateFipsFromId(did)===pref2));
-        } else if (level==="district"){
-          ({agg,total}=aggFromDistricts(did=>did===String(key)));
-        }
-      }
-
-      agg = agg || {}; total = total || 0;
-
-      const sorted = Object.entries(agg).sort((a,b)=>b[1].votes-a[1].votes);
-      const panel  = document.getElementById("candidate-panel");
-      panel.innerHTML = "";
-      // --- District wins summary (only at state level in district mode) ---
-      if (usingDistricts && level === "state") {
-        let gop = 0, dem = 0, ind = 0;
-        districtData.forEach((v, id) => {
-          if (stateFipsFromId(id) !== key) return;
-          const top = Object.values(v.candidates||{})
-            .reduce((a,b)=> (b.votes > a.votes ? b : a), {votes:-1});
-          if (top.party === "REP") gop++;
-          else if (top.party === "DEM") dem++;
-          else ind++;
-        });
-        const summary = document.createElement("div");
-        summary.innerHTML = `<strong>District Wins:</strong><br>
-          GOP: ${gop}, Dem: ${dem}, IND: ${ind}`;
-        panel.appendChild(summary);
-        panel.appendChild(document.createElement("hr")).className = "sep";
-      }
-
-      sorted.forEach(([ln,cv],idx)=>{
-        const pct = total ? ((cv.votes/total)*100).toFixed(1) : "0.0";
-        const div = document.createElement("div");
-        div.className = `candidate ${idx===0?"leader":""} ${
-          cv.party==="REP" ? "gop" :
-          cv.party==="DEM" ? "dem" : "ind"
-        }`;
-        div.innerHTML = `
-          <img src="${imgMap[ln]||'placeholder.png'}" alt="${ln}">
-          <div class="info">
-            <span class="name">${ln}</span>
-            <span class="votes">${cv.votes.toLocaleString()} (${pct}%)</span>
-          </div>`;
-        panel.appendChild(div);
-        panel.appendChild(document.createElement("hr")).className="sep";
-      });
+  if (level==="county"){
+    const v = countyData.get(key);
+    if (!v){
+      const title = document.createElement("div");
+      title.innerHTML = `<strong>County</strong>`;
+      panel.appendChild(title);
+      panel.appendChild(document.createElement("hr")).className="sep";
+      const none = document.createElement("div");
+      none.textContent = "No results yet…";
+      panel.appendChild(none);
+      return;
     }
-
-    function sumParties(v){
-      const sums = {REP:0, DEM:0, IND:0};
-      Object.values(v?.candidates || {}).forEach(cv=>{
-        const p = (cv.party || '').toUpperCase();
-        if (p in sums) sums[p] += +cv.votes || 0;
-      });
-      return sums;
-    }
+    const out = v.candidates;
+    const total = Object.values(out).reduce((s,c)=>s+(c.votes||0),0);
+    const sorted = Object.entries(out).sort((a,b)=>b[1].votes-a[1].votes);
+    const title = document.createElement("div");
+    title.innerHTML = `<strong>County</strong>`;
+    panel.appendChild(title);
+    panel.appendChild(document.createElement("hr")).className="sep";
+    sorted.forEach(([ln,cv],idx)=>{
+      const pct = total ? ((cv.votes/total)*100).toFixed(1) : "0.0";
+      const div = document.createElement("div");
+      div.className = `candidate ${idx===0?"leader":""} ${
+        cv.party==="REP" ? "gop" :
+        cv.party==="DEM" ? "dem" : "ind"
+      }`;
+      div.innerHTML = `
+        <img src="${imgMap[ln]||'placeholder.png'}" alt="${ln}">
+        <div class="info">
+          <span class="name">${ln}</span>
+          <span class="votes">${cv.votes.toLocaleString()} (${pct}%)</span>
+        </div>`;
+      panel.appendChild(div);
+      panel.appendChild(document.createElement("hr")).className="sep";
+    });
+  }
+}
 
 /* ------------------------------------------------------------------ *
- * Colour helper (depends on global colorMode)
+ * Race/year toggles
  * ------------------------------------------------------------------ */
-    function colour(v){
-      const sums = sumParties(v);
-      if (sums.IND > sums.REP && sums.IND > sums.DEM) return 'purple';
-      const diff = sums.REP - sums.DEM;
-      const pct  = v.total ? (diff / v.total) * 100 : 0;
-      if (colorMode === "vote")    return voteScale(diff);
-      if (colorMode === "percent") return pctScale(pct);
-      return leaderColor(diff);
+document.querySelectorAll("#controls-panel [data-mode]").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll("#controls-panel [data-mode]").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    // mode change could affect colour(); repaint
+    if (geoMode==='counties'){
+      countyLayer.selectAll("path").attr("fill", d=>{
+        const v=countyData.get(d.id);
+        return v ? colour(v) : "#eee";
+      });
+      refreshNationalStateFills();
     }
+  });
+});
+document.querySelectorAll(".race").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll(".race").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    currentRace = btn.dataset.race;
+    if (currentRace==='H'){ // switch to districts layer
+      geoMode='districts';
+      document.getElementById("geo-toggle").textContent = "Switch to Counties";
+      startDistrictLoop();
+    } else {
+      geoMode='counties';
+      document.getElementById("geo-toggle").textContent = "Switch to Congressional Districts";
+      startCountyLoops();
+    }
+  });
+});
+let currentRace='P';
 
-
+document.getElementById("title-year").textContent = currentYear;
 
 /* ------------------------------------------------------------------ *
- * Mode-switch buttons
+ * Geo toggle
  * ------------------------------------------------------------------ */
-d3.selectAll("#controls-panel button[data-mode]").on("click",function(){
-   const m=this.dataset.mode;
-   colorMode=m;
-   d3.selectAll("#controls-panel button[data-mode]").classed("active",d=>d===this);
-
-   if (geoMode === 'counties') {
-     countyLayer.selectAll("path")
-       .filter(function(){ return d3.select(this).style("display") !== "none"; })
-       .attr("fill", d => {
-         const v = countyData.get(d.id);
-         if (!v) return "#eee";
-         if (zoomLevel === 2 && d.id !== currentCountyId) {
-           const trumpVotes  = v.candidates.Trump?.votes || 0;
-           const harrisVotes = v.candidates.Harris?.votes || 0;
-           return trumpVotes > harrisVotes ? "var(--gop-light)" : "var(--dem-light)";
-         }
-         return colour(v);
-       });
-   } else {
-     districtLayer.selectAll("path")
-       .filter(function(){ return d3.select(this).style("display") !== "none"; })
-       .attr("fill", d => {
-           const v = districtData.get(d.id);
-           if (!v) return (d.id === currentDistrictId) ? "#ccc" : "#eee";
-           if (zoomLevel === 2 && d.id !== currentDistrictId) {
-             const s = sumParties(v);
-             if (s.IND > s.REP && s.IND > s.DEM) return "var(--ind-light)"; // <--- change
-             return s.REP > s.DEM ? "var(--gop-light)" : "var(--dem-light)";
-           }
-           return colour(v);
-         });
-
-   }
-
-   refreshNeighborStateFills();
-   refreshNationalStateFills();
+document.getElementById("geo-toggle").addEventListener("click", ()=>{
+  if (geoMode==='counties'){
+    geoMode='districts';
+    document.getElementById("geo-toggle").textContent = "Switch to Counties";
+    statesLayer.style("display", "none");
+    countyLayer.style("display", "none");
+    districtLayer.style("display", null);
+  } else {
+    geoMode='counties';
+    document.getElementById("geo-toggle").textContent = "Switch to Congressional Districts";
+    statesLayer.style("display", null);
+    countyLayer.style("display", null);
+    districtLayer.style("display", "none");
+  }
 });
 
-    // === Race button wiring ===
-    // === Race button wiring (P/G/S = counties, H = districts) ===
-    d3.selectAll(".race").on("click", function(){
-      const r = this.dataset.race;
-      if (r === currentRace) return;
-      currentRace = r;
+/* ------------------------------------------------------------------ *
+ * Canonical keys for candidate names
+ * ------------------------------------------------------------------ */
+function canonicalKeyForRace(race, fullName){
+  return (race==='P') ? (fullName||'').trim().split(' ').pop() : (fullName||'').trim();
+}
 
-      d3.selectAll(".race").classed("active", false);
-      d3.select(this).classed("active", true);
 
-      // If House → show congressional districts; else → counties
-      if (currentRace === 'H') {
-        if (geoMode !== 'districts') {
-          geoMode = 'districts';
-          document.getElementById('geo-toggle').textContent = 'Switch to Counties';
-          countyLayer.style('display', 'none');
-          districtLayer.style('display', null);
-        }
-        districtData = districtCacheByYear[currentYear].H;
-      } else {
-        if (geoMode !== 'counties') {
-          geoMode = 'counties';
-          document.getElementById('geo-toggle').textContent = 'Switch to Congressional Districts';
-          countyLayer.style('display', null);
-          districtLayer.style('display', 'none');
-        }
-        countyData = countyCacheByYear[currentYear][currentRace];
-      }
+/* ------------------------------------------------------------------ *
+ * County polling: now bulk per STATE via /results_state
+ * ------------------------------------------------------------------ */
+function clearCountyTimers(){
+  Object.keys(countyTimers).forEach(k=>{
+    if (countyTimers[k]){ clearTimeout(countyTimers[k]); countyTimers[k]=null; }
+  });
+}
+const countyInFlight = { P:false, G:false, S:false };
 
-      // Repaint visible shapes
-      if (geoMode === 'counties') {
-        countyLayer.selectAll("path")
-          .filter(function(){ return d3.select(this).style("display")!=="none"; })
-          .attr("fill", d => countyData.get(d.id) ? colour(countyData.get(d.id)) : "#eee");
-      } else {
-        districtLayer.selectAll("path")
-          .filter(function(){ return d3.select(this).style("display")!=="none"; })
-          .attr("fill", d => {
-            const v = districtData.get(d.id);
-            if (!v) return (d.id === currentDistrictId) ? "#ccc" : "#eee";
-            if (zoomLevel === 2 && d.id !== currentDistrictId) {
-              const s = sumParties(v);
-              if (s.IND > s.REP && s.IND > s.DEM) return "var(--ind-light)";
-              return s.REP > s.DEM ? "var(--gop-light)" : "var(--dem-light)";
-            }
-            return colour(v);
-          });
-      }
+function startCountyLoops(){
+  clearCountyTimers();
+  ['P','G','S'].forEach(r => {
+    countyTimers[r] = setTimeout(()=>pollCountiesForRace(r, currentYear), 10);
+  });
+}
 
-      // Refresh neighbor fills + panel
+async function pollCountiesForRace(race, year){
+  // don't start a new pass if the last one hasn't finished
+  if (countyInFlight[race]) {
+    countyTimers[race] = setTimeout(()=>pollCountiesForRace(race, year), 5000);
+    return;
+  }
+  countyInFlight[race] = true;
+
+  try {
+    if (year !== currentYear) return;
+    const targetMap = countyCacheByYear[year][race];
+
+    // enqueue one fetch per STATE (bulk endpoint), not per county
+    const seen = new Set();
+    for (const fips2 of Object.keys(fipsToPostal)) {
+      const stateCode = fipsToPostal[fips2];
+      if (seen.has(stateCode)) continue;
+      seen.add(stateCode);
+      enqueueFetch(async () => {
+        try{
+          await fetchStateBulk(stateCode, race, targetMap, year);
+        }catch(e){ /* swallow */ }
+      });
+    }
+
+    // wait for the queue to fully drain before repainting/scheduling next pass
+    await waitForQueueToDrain();
+
+    // repaint visible geometries using whatever we have (never blank the map)
+    if (race===currentRace && year===currentYear && geoMode==='counties'){
+      const visible = countyLayer.selectAll("path")
+        .filter(function(){return d3.select(this).style("display")!=="none";});
+      visible.attr("fill", d => {
+        const v = targetMap.get(d.id);
+        return v ? colour(v) : "#eee";
+      });
       refreshNeighborStateFills();
       if (zoomLevel===0) refreshNationalStateFills();
-
       updateCandidatePanel(
-        (zoomLevel===0)?"national":(zoomLevel===1)?"state":(geoMode==='counties'?"county":"district"),
-        (zoomLevel===1 && currentState)?String(currentState.id).padStart(2,"0"):
-        (zoomLevel===2 && geoMode==='counties')?currentCountyId:
-        (zoomLevel===2 && geoMode==='districts')?currentDistrictId:null
+        (zoomLevel===0)?"national":(zoomLevel===1)?"state":"county",
+        (zoomLevel===1 && currentState)?String(currentState.id).padStart(2,"0"):(zoomLevel===2?currentCountyId:null)
       );
-    });
+    }
+  } finally {
+    countyInFlight[race] = false;
+    // schedule the next sweep only after we fully finish this pass
+    countyTimers[race] = setTimeout(()=>pollCountiesForRace(race, year), 10000);
+  }
+}
 
+async function fetchStateBulk(stateCode, race, targetMap, year){
+  const yearParam = (year===2028) ? "" : `&year=${year}`;
+  const url = `/results_state?state=${stateCode}&office=${race}${yearParam}`;
 
-    
-    function canonicalKeyForRace(race, fullName){
-      return (race==='P') ? (fullName||'').trim().split(' ').pop() : (fullName||'').trim();
+  // hard timeout per request to avoid hanging the whole pass
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 6000);
+
+  try{
+    const data = await fetch(url, { signal: controller.signal })
+      .then(r => r.ok ? r.json() : null)
+      .catch(()=>null);  // swallow errors
+    if (!data || !data.ok || !data.counties) return false;
+
+    // data.counties is { baseName: { candidates:[{name,party,votes}], total } }
+    const entries = Object.entries(data.counties);
+    for (const [base, info] of entries){
+      const id = __countyKeyToId.get(stateCode + ":" + base);
+      if (!id) continue;
+
+      const candObj = {};
+      (info.candidates||[]).forEach(r=>{
+        const key = canonicalKeyForRace(race, r.name);
+        candObj[key] = { votes:+r.votes||0, party:(r.party||'').toUpperCase() };
+      });
+      const total = Object.values(candObj).reduce((s,c)=>s+(+c.votes||0),0);
+      targetMap.set(id, { candidates:candObj, total });
     }
 
-    
-    
-    
-    
+    if (year===currentYear && race===currentRace && geoMode==='counties') countyData = targetMap;
+    return true;
+  } catch (e){
+    return false;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 /* ------------------------------------------------------------------ *
- * County-by-county polling (district API TBD)
+ * District polling (only active when geoMode === 'districts') ---
  * ------------------------------------------------------------------ */
-    function clearCountyTimers(){
-      Object.keys(countyTimers).forEach(k=>{
-        if (countyTimers[k]){ clearTimeout(countyTimers[k]); countyTimers[k]=null; }
-      });
-    }
+function clearDistrictTimer(){
+  if (districtTimerH){ clearTimeout(districtTimerH); districtTimerH=null; }
+}
 
-    function startCountyLoops(){
-      clearCountyTimers();
-      ['P','G','S'].forEach(r => {
-        countyTimers[r] = setTimeout(()=>pollCountiesForRace(r, currentYear), 10);
-      });
-    }
+function startDistrictLoop(){
+  clearDistrictTimer();
+  districtTimerH = setTimeout(()=>pollHouseDistricts(currentYear), 10);
+}
 
-    async function pollCountiesForRace(race, year){
-      // don't start a new pass if the last one hasn't finished
-      if (countyInFlight[race]) {
-        countyTimers[race] = setTimeout(()=>pollCountiesForRace(race, year), 5000);
-        return;
-      }
-      countyInFlight[race] = true;
-
-      try {
-        if (year !== currentYear) return;
-        const targetMap = countyCacheByYear[year][race];
-
-        // enqueue one fetch per county; the queue pumps them slowly
-        for (const county of countiesFeatures) {
-          enqueueFetch(async () => {
-            // one try
-            let ok = await fetchCountyByRace(county, race, targetMap, year);
-            // quick retry on transport-level hiccups (HTTP/2 resets, aborts, etc.)
-            if (!ok) {
-              await new Promise(r => setTimeout(r, 800));
-              ok = await fetchCountyByRace(county, race, targetMap, year);
-            }
-          });
-        }
-
-        // wait for the queue to fully drain before repainting/scheduling next pass
-        await waitForQueueToDrain();
-
-        // repaint visible geometries using whatever we have (never blank the map)
-        if (race===currentRace && year===currentYear && geoMode==='counties'){
-          const visible = countyLayer.selectAll("path")
-            .filter(function(){return d3.select(this).style("display")!=="none";});
-          visible.attr("fill", d => {
-            const v = targetMap.get(d.id);
-            return v ? colour(v) : "#eee";
-          });
-          refreshNeighborStateFills();
-          if (zoomLevel===0) refreshNationalStateFills();
-          updateCandidatePanel(
-            (zoomLevel===0)?"national":(zoomLevel===1)?"state":"county",
-            (zoomLevel===1 && currentState)?String(currentState.id).padStart(2,"0"):(zoomLevel===2?currentCountyId:null)
-          );
-        }
-      } finally {
-        countyInFlight[race] = false;
-        // schedule the next sweep only after we fully finish this pass
-        countyTimers[race] = setTimeout(()=>pollCountiesForRace(race, year), 10000);
-      }
-    }
-
-
-    async function fetchCountyByRace(county, race, targetMap, year){
-      const fips = String(county.id).padStart(5,"0");
-      const state = fipsToPostal[fips.slice(0,2)];
-      const yearParam = (year===2028) ? "" : `&year=${year}`;
-      const url = `/results?state=${state}&county=${encodeURIComponent(county.properties.name)}&office=${race}${yearParam}`;
-
-      // hard timeout per request to avoid hanging the whole pass
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 3500);
-
-      try{
-          const data = await fetch(url, { signal: controller.signal })
-            .then(r => r.ok ? r.json() : null)
-            .catch(()=>null);  // swallow network/server errors
-        if (!data.results) return false;
-
-        const candObj = {};
-        data.results.forEach(r=>{
-          const key = canonicalKeyForRace(race, r.name);
-          candObj[key] = { votes:+r.votes||0, party:(r.party||'').toUpperCase() };
-        });
-        const total = Object.values(candObj).reduce((s,c)=>s+(+c.votes||0),0);
-
-        targetMap.set(county.id, { candidates:candObj, total });
-        if (year===currentYear && race===currentRace && geoMode==='counties') countyData = targetMap;
-        return true;
-      } catch (e){
-        // swallow errors; report failure upward so the caller can retry a bounded number of times
-        return false;
-      } finally {
-        clearTimeout(t);
-      }
-    }
-
-
-    
-    // --- District polling (only active when geoMode === 'districts') ---
-    function clearDistrictTimer(){
-      if (districtTimerH){ clearTimeout(districtTimerH); districtTimerH=null; }
-    }
-
-    function startDistrictLoop(){
-      clearDistrictTimer();
-      districtTimerH = setTimeout(()=>pollHouseDistricts(currentYear), 10);
-    }
-
-    async function pollHouseDistricts(year){
-      // prevent overlapping runs
-      if (districtInFlightH) {
-        districtTimerH = setTimeout(()=>pollHouseDistricts(year), 8000);
-        return;
-      }
-      districtInFlightH = true;
-
-      try {
-        // only work when we're actually on House + districts
-        if (currentRace !== 'H' || geoMode !== 'districts') return;
-
-        if (year !== currentYear) return;
-        const targetMap = districtCacheByYear[year].H;
-
-        // only poll shapes that are on-screen (keeps it light)
-        const visible = districtLayer.selectAll("path")
-          .filter(function(){ return d3.select(this).style("display") !== "none"; })
-          .data();
-
-        if (!visible.length) return;
-
-        // batch to avoid hammering
-        for (let i=0; i<visible.length; i+=400){
-          const batch = visible.slice(i, i+400);
-          await Promise.all(batch.map(d => fetchDistrictH(d, targetMap)));
-        }
-
-        // repaint with last-good data
-        if (currentRace==='H' && year===currentYear && geoMode==='districts'){
-          districtLayer.selectAll("path")
-            .filter(function(){ return d3.select(this).style("display") !== "none"; })
-            .attr("fill", d => {
-              const v = targetMap.get(d.id);
-              if (!v) return (d.id === currentDistrictId) ? "#ccc" : "#eee";
-              if (zoomLevel === 2 && d.id !== currentDistrictId) {
-                const s = sumParties(v);
-                if (s.IND > s.REP && s.IND > s.DEM) return "var(--ind-light)";
-                return s.REP > s.DEM ? "var(--gop-light)" : "var(--dem-light)";
-              }
-              return colour(v);
-            });
-
-          refreshNeighborStateFills();
-          if (zoomLevel===0) refreshNationalStateFills();
-          updateCandidatePanel(
-            (zoomLevel===0)?"national":(zoomLevel===1)?"state":"district",
-            (zoomLevel===1 && currentState)?String(currentState.id).padStart(2,"0"):(zoomLevel===2?currentDistrictId:null)
-          );
-        }
-      } finally {
-        districtInFlightH = false;
-        districtTimerH = setTimeout(()=>pollHouseDistricts(year), 10000);
-      }
-    }
-
-
-
-    async function fetchDistrictH(d, targetMap){
-      const stateFips   = d.properties.STATEFP;
-      const districtKey = d.properties.CD119FP;
-      const state       = fipsToPostal[stateFips];
-      if (!state || !districtKey) return false;
-
-      const url = `/results_cd?state=${state}&district=${districtKey}`;
-
-      // hard timeout per request (mirrors counties)
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 3500);
-
-      try {
-          const data = await fetch(url, { signal: controller.signal })
-            .then(r => r.ok ? r.json() : null)
-            .catch(()=>null);  // swallow errors, don’t log to console
-
-        if (!data.results) return false;
-
-        const candObj = {};
-        let total = 0;
-        data.results.forEach(r=>{
-          const name  = (r.name || "").trim();
-          const party = (r.party || "").toUpperCase();
-          const votes = +r.votes || 0;
-          candObj[name] = { votes, party };
-          total += votes;
-        });
-
-        targetMap.set(d.id, { candidates: candObj, total });
-        return true;
-      } catch(err){
-        // swallow; caller will retry on next pass
-        return false;
-      } finally {
-        clearTimeout(t);
-      }
-    }
-
-
-
-
-
-
+async function pollHouseDistricts(year){
+  try{
+    // placeholder; integrate /results_cd similarly with caching
+    // you can leave districts uncolored until API added
+  } finally {
+    districtTimerH = setTimeout(()=>pollHouseDistricts(year), districtInterval);
+  }
+}
 
 /* ------------------------------------------------------------------ *
  * Map click outside → zoom out
