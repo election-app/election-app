@@ -80,7 +80,6 @@
       <div class="bar"><i id="hud-bar"></i></div>
       <div class="row muted" id="hud-sub">—</div>
     </div>
-
   </div>
 
   <aside id="right">
@@ -112,18 +111,17 @@ function showDistrictLayer(){ countiesG.style("display","none"); cdsG.style("dis
 
 let statesF=[], countiesF=[], cdF=[];
 let fipsToPostal = {};
-let countyKeyToId = new Map();     // "ST:base" -> county FIPS id
-let countyMeta = new Map();         // countyFIPS -> {state, county}
-let districtIdSet = new Set();      // valid district GEOIDs
-let districtMeta = new Map();       // GEOID -> {state, name}
+let countyKeyToId = new Map();
+let countyMeta = new Map();
+let districtIdSet = new Set();
+let districtMeta = new Map();
 
 /* ------------------------------ data storage ------------------------------ */
-/* We keep per-race caches and do NOT clear them when switching tabs. */
-const raceCountyData = { P:new Map(), G:new Map(), S:new Map() }; // countyFIPS -> {candidates,total}
-const raceDistrictData = { H:new Map() };                         // GEOID -> {candidates,total}
+const raceCountyData = { P:new Map(), G:new Map(), S:new Map() };
+const raceDistrictData = { H:new Map() };
 const fetchedStatesByRace = { P:new Set(), G:new Set(), S:new Set(), H:new Set() };
 
-let currentRace = null; // 'P'|'G'|'S'|'H'
+let currentRace = null;
 let autoTimer = null;
 
 /* ---------------------------------- UI ------------------------------------ */
@@ -147,16 +145,13 @@ raceBtnEls.forEach(btn=>{
     refreshBtn.disabled = false;
     autoBtn.disabled = false;
 
-    // set visible layer, leave prior data for other races intact
     if (currentRace==='H'){ showDistrictLayer(); scopeLabel.textContent='(national – districts)'; }
     else { showCountyLayer(); scopeLabel.textContent='(national – counties)'; }
 
-    // If we already fetched some data for this race, just repaint from cache.
-    // Otherwise leave blank until user hits Refresh (or Auto).
     paintAll();
     rebuildWinners();
     hud.set('race', `${labelFor(currentRace)} — ${describeLayer()}`);
-    hud.set('source', 'Server snapshot (backend caches upstream ~15s)');
+    hud.set('source', 'Server snapshot (backend caches upstream ~60s)');
     hud.set('status', 'Ready to fetch / paint');
     hud.set('progress', { text:'0 / 0', pct:0 });
     hud.set('sub', 'Switch races freely; cached data is reused.');
@@ -168,26 +163,27 @@ raceBtnEls.forEach(btn=>{
 refreshBtn.onclick = refreshAllForCurrentRace;
 autoBtn.onclick = ()=>{
   if (autoTimer){
-    clearInterval(autoTimer); autoTimer=null;
+    clearInterval(autoTimer);
+    autoTimer = null;
     autoBtn.textContent='Start Auto';
     setStatus('Auto refresh off.');
     hud.set('status','Auto refresh off');
     hud.set('sub','—');
   }else{
-    autoTimer = setInterval(refreshAllForCurrentRace, 15000);
+    autoTimer = setInterval(refreshAllForCurrentRace, 60000); // every 60s
+    refreshAllForCurrentRace(); // fire immediately once
     autoBtn.textContent='Stop Auto';
-    setStatus('Auto refresh on (15s).');
-    hud.set('status','Auto refresh on (every 15s)');
-    hud.set('sub','Will refresh all states on schedule.');
+    setStatus('Auto refresh on (60s).');
+    hud.set('status','Auto refresh on (every 60s)');
+    hud.set('sub','Will refresh all states once per minute.');
   }
 };
-
 
 /* ------------------------------- load maps -------------------------------- */
 Promise.all([
   d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json"),
   d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json"),
-  d3.json("cb_2024_us_cd119_500k.json") // adjust path if hosted elsewhere
+  d3.json("cb_2024_us_cd119_500k.json")
 ]).then(([stTopo, ctTopo, cdTopo])=>{
   const stObj = stTopo.objects.states || stTopo.objects[Object.keys(stTopo.objects)[0]];
   const ctObj = ctTopo.objects.counties || ctTopo.objects[Object.keys(ctTopo.objects)[0]];
@@ -197,7 +193,6 @@ Promise.all([
   countiesF = topojson.feature(ctTopo, ctObj).features;
   cdF       = topojson.feature(cdTopo, cdObj).features;
 
-  // state FIPS -> USPS
   const nameToPostal = {
     "Alabama":"AL","Alaska":"AK","Arizona":"AZ","Arkansas":"AR","California":"CA","Colorado":"CO",
     "Connecticut":"CT","Delaware":"DE","Florida":"FL","Georgia":"GA","Hawaii":"HI","Idaho":"ID",
@@ -215,7 +210,6 @@ Promise.all([
     fipsToPostal[f2] = nameToPostal[s.properties.name];
   });
 
-  // county base-name index + meta
   const SUFFIX_RE = /\s+(city and borough|census area|borough|municipality|parish|county)$/i;
   function baseName(n){
     let t = (n||"").toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
@@ -230,7 +224,6 @@ Promise.all([
     countyMeta.set(fid, {state:st, county:display});
   });
 
-  // district meta
   districtIdSet = new Set(cdF.map(f => (f.properties.GEOID||"").trim()));
   cdF.forEach(f=>{
     const geoid = String(f.properties.GEOID||"").trim();
@@ -248,7 +241,7 @@ Promise.all([
     const geoid = String(f.properties.GEOID || "").trim();
     if (st && code2 && geoid) districtNumToGeoid.set(`${st}-${code2}`, geoid);
   });
-  // draw base layers (neutral) + click handlers
+
   statesG.selectAll("path").data(statesF).join("path")
     .attr("d", path).attr("fill","#f7f9ff")
     .attr("stroke","#b9c6d7").attr("stroke-width",1.1)
@@ -272,52 +265,47 @@ Promise.all([
 });
 
 /* -------------------------- fetch (server snapshot) ------------------------ */
-    async function refreshAllForCurrentRace(){
-      if (!currentRace){
-        setStatus('Choose a race first.');
-        return;
-      }
-
-      hud.set('status', 'Refreshing…');
-      hud.set('source', 'Server snapshot (backend caches upstream ~15s)');
-      hud.set('race', `${labelFor(currentRace)} — ${describeLayer()}`);
-      hud.set('sub', 'Fetching all races, one state at a time; repainting after each.');
-
-      const states = Object.values(fipsToPostal);
-      
-      let done = 0;
-      hud.set('progress', { text: `0 / ${states.length}`, pct: 0 });
-
-      // Always fetch all four races
-      // Batch the states to avoid 200 requests hammering backend at once
-const batchSize = 1;   // how many states per batch
-for (let i = 0; i < states.length; i += batchSize){
-  const batch = states.slice(i, i + batchSize);
-
-  for (const st of batch){
-    await fetchStateBulk(st, 'P');
-    await fetchStateBulk(st, 'G');
-    await fetchStateBulk(st, 'S');
-    await fetchDistrictBulk(st);
-    done++;
-    hud.set('progress', {
-      text: `${done} / ${states.length}`,
-      pct: Math.round(done/states.length*100)
-    });
-    hud.set('sub', `Last: ${st} (${new Date().toLocaleTimeString()})`);
+async function refreshAllForCurrentRace(){
+  if (!currentRace){
+    setStatus('Choose a race first.');
+    return;
   }
 
-  // short pause between batches
-  await new Promise(r => setTimeout(r, 10000));
-}
+  hud.set('status', 'Refreshing…');
+  hud.set('source', 'Server snapshot (backend caches upstream ~60s)');
+  hud.set('race', `${labelFor(currentRace)} — ${describeLayer()}`);
+  hud.set('sub', 'Fetching all races, one state at a time; repainting after each.');
 
+  const states = Object.values(fipsToPostal);
+  
+  let done = 0;
+  hud.set('progress', { text: `0 / ${states.length}`, pct: 0 });
 
-      hud.set('status', 'Up to date');
-      hud.set('sub', 'Last paint: ' + new Date().toLocaleTimeString());
-      setStatus('Last update: ' + new Date().toLocaleTimeString());
-      paintAll();
-      rebuildWinners();
+  const batchSize = 10;
+  for (let i = 0; i < states.length; i += batchSize){
+    const batch = states.slice(i, i + batchSize);
+
+    for (const st of batch){
+      await fetchStateBulk(st, 'P');
+      await fetchStateBulk(st, 'G');
+      await fetchStateBulk(st, 'S');
+      await fetchDistrictBulk(st);
+      done++;
+      hud.set('progress', {
+        text: `${done} / ${states.length}`,
+        pct: Math.round(done/states.length*100)
+      });
+      hud.set('sub', `Last: ${st} (${new Date().toLocaleTimeString()})`);
     }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  hud.set('status', 'Up to date');
+  hud.set('sub', 'Last paint: ' + new Date().toLocaleTimeString());
+  setStatus('Last update: ' + new Date().toLocaleTimeString());
+  paintAll();
+  rebuildWinners();
+}
 
 async function fetchStateBulk(stateCode, race){
   const url = `/results_state?state=${stateCode}&office=${race}`;
@@ -345,11 +333,9 @@ async function fetchStateBulk(stateCode, race){
   }catch(_){ return false; }
 }
 
-    // index.html — replace fetchDistrictBulk with this
     async function fetchDistrictBulk(stateCode){
       const tryUrls = [
         `/results_districts?state=${stateCode}&office=H`,
-        // (optional fallback) `/results_cd?state=${stateCode}&district=1`
       ];
       let data = null;
 
@@ -358,11 +344,16 @@ async function fetchStateBulk(stateCode, race){
           const r = await fetch(url, { cache:'no-store' });
           if (!r.ok) continue;
           const j = await r.json();
-          // only accept payloads that are ok and contain bulk districts
           if (j && j.ok && (j.districts || j.cd)) { data = j; break; }
         }catch(_){}
       }
       if (!data) return false;
+
+      // Ensure the state→2-digit→geoid map is available (it’s populated during map load)
+      // If your map-load block defined it inside a closure, this guards against a ReferenceError.
+      if (typeof window.districtNumToGeoid === 'undefined') {
+        window.districtNumToGeoid = new Map();
+      }
 
       const store = raceDistrictData.H;
       const src = data.districts || data.cd || {};
@@ -372,9 +363,8 @@ async function fetchStateBulk(stateCode, race){
         let geoid = String(rawKey).trim();
 
         if (!districtIdSet.has(geoid)) {
-          // try to coerce: "1", "01", "AL-01", "Congressional District 1"
           const digits = (geoid.match(/\d+/) || [""])[0].padStart(2,"0");
-          const guess = districtNumToGeoid.get(`${stateCode}-${digits}`);
+          const guess = window.districtNumToGeoid.get(`${stateCode}-${digits}`);
           if (guess) geoid = guess;
         }
 
@@ -394,201 +384,196 @@ async function fetchStateBulk(stateCode, race){
       return accepted > 0;
     }
 
-
-
-/* --------------------------------- paint ---------------------------------- */
-function mix(a,b,t){ return Math.round(a+(b-a)*t); }
-function hex(r,g,b){ return "#"+[r,g,b].map(x=>x.toString(16).padStart(2,"0")).join(""); }
-function colourCellDemRep(v){
-  if (!v) return "#eee";
-  let dem=0, gop=0;
-  for (const k in v.candidates){
-    const c=v.candidates[k];
-    if (c.party==="DEM") dem += c.votes||0;
-    else if (c.party==="REP") gop += c.votes||0;
-  }
-  if (dem===0 && gop===0) return "#eee";
-  const pct = dem/(dem+gop);
-  const blue=[0,103,203], red=[236,29,25];
-  const t = Math.abs(pct-0.5)*2;
-  const rgb = pct>=.5
-    ? [mix(red[0],blue[0],t),mix(red[1],blue[1],t),mix(red[2],blue[2],t)]
-    : [mix(blue[0],red[0],t),mix(blue[1],red[1],t),mix(blue[2],red[2],t)];
-  return hex(...rgb);
-}
-
-function paintAll(){
-  // counties for P/G/S
-  countiesG.selectAll("path")
-    .attr("fill", d => {
-      const id = String(d.id).padStart(5,'0');
-      const store = currentRace && currentRace!=='H' ? raceCountyData[currentRace] : null;
-      const cell = store ? store.get(id) : null;
-      return colourCellDemRep(cell);
-    });
-
-  // districts for H
-  cdsG.selectAll("path")
-    .attr("fill", d => {
-      const geoid = String(d.properties.GEOID||"").trim();
-      const cell = raceDistrictData.H.get(geoid);
-      return colourCellDemRep(cell);
-    });
-
-  // state tint by visible layer aggregate
-  const agg = new Map();
-  if (currentRace==='H'){
-    raceDistrictData.H.forEach((v, geoid)=>{
-      const st = String(geoid).slice(0,2);
-      let a = agg.get(st) || {d:0,r:0};
+    /* --------------------------------- paint ---------------------------------- */
+    function mix(a,b,t){ return Math.round(a+(b-a)*t); }
+    function hex(r,g,b){ return "#"+[r,g,b].map(x=>x.toString(16).padStart(2,"0")).join(""); }
+    function colourCellDemRep(v){
+      if (!v) return "#eee";
+      let dem=0, gop=0;
       for (const k in v.candidates){
         const c=v.candidates[k];
-        if (c.party==="DEM") a.d += c.votes||0;
-        else if (c.party==="REP") a.r += c.votes||0;
+        if (c.party==="DEM") dem += c.votes||0;
+        else if (c.party==="REP") gop += c.votes||0;
       }
-      agg.set(st, a);
-    });
-  } else if (currentRace){
-    raceCountyData[currentRace].forEach((v, id)=>{
-      const st = String(id).slice(0,2);
-      let a = agg.get(st) || {d:0,r:0};
-      for (const k in v.candidates){
-        const c=v.candidates[k];
-        if (c.party==="DEM") a.d += c.votes||0;
-        else if (c.party==="REP") a.r += c.votes||0;
-      }
-      agg.set(st, a);
-    });
-  }
-  statesG.selectAll("path").attr("fill", s=>{
-    const a = agg.get(String(s.id).padStart(2,'0'));
-    if (!a) return "#f7f9ff";
-    const v = {candidates:{D:{party:"DEM",votes:a.d},R:{party:"REP",votes:a.r}}};
-    return colourCellDemRep(v);
-  });
-}
-
-/* ------------------------------ winners panel ------------------------------ */
-function rebuildWinners(){
-  winnersEl.innerHTML = "";
-  if (!currentRace){
-    winnersEl.innerHTML = '<div class="row muted">No data yet.</div>'; return;
-  }
-
-  let D=0, R=0, O=0, total=0;
-  if (currentRace==='H'){
-    raceDistrictData.H.forEach(v=>{
-      for (const k in v.candidates){
-        const c=v.candidates[k];
-        if (c.party==="DEM") D += c.votes||0;
-        else if (c.party==="REP") R += c.votes||0;
-        else O += c.votes||0;
-      }
-    });
-  } else {
-    raceCountyData[currentRace].forEach(v=>{
-      for (const k in v.candidates){
-        const c=v.candidates[k];
-        if (c.party==="DEM") D += c.votes||0;
-        else if (c.party==="REP") R += c.votes||0;
-        else O += c.votes||0;
-      }
-    });
-  }
-  total = D+R+O;
-  if (!total){ winnersEl.innerHTML = '<div class="row muted">No data yet.</div>'; return; }
-
-  const rows = [
-    {name:"Democrat", votes:D, cls:"dem"},
-    {name:"Republican", votes:R, cls:"gop"},
-  ];
-  if (O>0) rows.push({name:"Other", votes:O, cls:""});
-
-  rows.sort((a,b)=>b.votes-a.votes);
-  rows.forEach((r,i)=>{
-    const el = document.createElement('div');
-    el.className = 'cand ' + r.cls + (i===0 ? ' leader' : '');
-    el.innerHTML = `
-      <span class="name">${r.name}</span>
-      <span class="votes">${r.votes.toLocaleString()} (${(r.votes/total*100).toFixed(1)}%)</span>`;
-    winnersEl.appendChild(el);
-  });
-}
-
-/* ------------------------------ click details ------------------------------ */
-function handleClickCounty(feature){
-  if (!currentRace || currentRace==='H'){ detailsEl.innerHTML = '<span class="muted">Switch to P/G/S to see county results.</span>'; return; }
-  const id = String(feature.id).padStart(5,'0');
-  const meta = countyMeta.get(id) || {state:'', county:'(unknown)'};
-  const cell = raceCountyData[currentRace].get(id);
-
-  if (!cell){
-    detailsEl.innerHTML = `<div><span class="k">${meta.county}, ${meta.state}</span> <span class="pill">${labelFor(currentRace)}</span><div class="muted">No data in cache yet.</div></div>`;
-    return;
-  }
-  showCellDetails(`${meta.county}, ${meta.state}`, cell, labelFor(currentRace));
-}
-
-function handleClickDistrict(feature){
-  if (currentRace!=='H'){ detailsEl.innerHTML = '<span class="muted">Switch to House to see district results.</span>'; return; }
-  const geoid = String(feature.properties.GEOID||"").trim();
-  const meta = districtMeta.get(geoid) || {state:'', name:`District ${geoid.slice(2)}`};
-  const cell = raceDistrictData.H.get(geoid);
-
-  if (!cell){
-    detailsEl.innerHTML = `<div><span class="k">${meta.name}, ${meta.state}</span> <span class="pill">House</span><div class="muted">No data in cache yet.</div></div>`;
-    return;
-  }
-  showCellDetails(`${meta.name}, ${meta.state}`, cell, 'House');
-}
-
-function showCellDetails(title, cell, raceLabel){
-  const rows = Object.entries(cell.candidates||{})
-    .map(([name,obj])=>({name,party:obj.party||'',votes:+obj.votes||0}))
-    .sort((a,b)=>b.votes-a.votes);
-  const total = rows.reduce((s,r)=>s+r.votes,0) || 1;
-
-  let html = `<div><span class="k">${title}</span> <span class="pill">${raceLabel}</span></div>`;
-  html += `<div class="muted" style="margin:.2rem 0 .4rem">Total votes: ${total.toLocaleString()}</div>`;
-  rows.forEach(r=>{
-    const tag = r.party==='DEM'?'(D)':r.party==='REP'?'(R)':r.party?`(${r.party})`:'';
-    html += `<div class="cand ${r.party==='DEM'?'dem':r.party==='REP'?'gop':''}">
-      <span class="name">${r.name} ${tag}</span>
-      <span>${r.votes.toLocaleString()} (${(r.votes/total*100).toFixed(1)}%)</span>
-    </div>`;
-  });
-  detailsEl.innerHTML = html;
-}
-
-/* --------------------------------- helpers -------------------------------- */
-function labelFor(r){ return r==='P'?'President':r==='G'?'Governor':r==='S'?'Senate':'House'; }
-function setStatus(msg){ statusEl.textContent = msg; }
-/* ------------------------------- HUD helpers ------------------------------- */
-const hud = {
-  el: document.getElementById('hud'),
-  progEl: document.getElementById('hud-progress'),
-  barEl: document.getElementById('hud-bar'),
-  subEl: document.getElementById('hud-sub'),
-  set(k, v){
-    const map = {
-      status: 0, race: 1, source: 2, progress: 3, sub: 5
-    };
-    const rows = this.el.querySelectorAll('.row');
-    if (k === 'status') rows[0].innerHTML = `<span class="dot"></span><b>Status:</b> ${v}`;
-    if (k === 'race')   rows[1].innerHTML = `<b>Race:</b> ${v}`;
-    if (k === 'source') rows[2].innerHTML = `<b>Source:</b> ${v}`;
-    if (k === 'progress'){
-      this.progEl.textContent = v.text;
-      this.barEl.style.width = v.pct + '%';
+      if (dem===0 && gop===0) return "#eee";
+      const pct = dem/(dem+gop);
+      const blue=[0,103,203], red=[236,29,25];
+      const t = Math.abs(pct-0.5)*2;
+      const rgb = pct>=.5
+        ? [mix(red[0],blue[0],t),mix(red[1],blue[1],t),mix(red[2],blue[2],t)]
+        : [mix(blue[0],red[0],t),mix(blue[1],red[1],t),mix(blue[2],red[2],t)];
+      return hex(...rgb);
     }
-    if (k === 'sub') this.subEl.textContent = v;
-  }
-};
 
-function describeLayer(){
-  return (currentRace === 'H') ? 'districts (House)' : 'counties (' + labelFor(currentRace) + ')';
-}
+    function paintAll(){
+      // counties for P/G/S
+      countiesG.selectAll("path")
+        .attr("fill", d => {
+          const id = String(d.id).padStart(5,'0');
+          const store = currentRace && currentRace!=='H' ? raceCountyData[currentRace] : null;
+          const cell = store ? store.get(id) : null;
+          return colourCellDemRep(cell);
+        });
 
-</script>
-</body>
-</html>
+      // districts for H
+      cdsG.selectAll("path")
+        .attr("fill", d => {
+          const geoid = String(d.properties.GEOID||"").trim();
+          const cell = raceDistrictData.H.get(geoid);
+          return colourCellDemRep(cell);
+        });
+
+      // state tint by visible layer aggregate
+      const agg = new Map();
+      if (currentRace==='H'){
+        raceDistrictData.H.forEach((v, geoid)=>{
+          const st = String(geoid).slice(0,2);
+          let a = agg.get(st) || {d:0,r:0};
+          for (const k in v.candidates){
+            const c=v.candidates[k];
+            if (c.party==="DEM") a.d += c.votes||0;
+            else if (c.party==="REP") a.r += c.votes||0;
+          }
+          agg.set(st, a);
+        });
+      } else if (currentRace){
+        raceCountyData[currentRace].forEach((v, id)=>{
+          const st = String(id).slice(0,2);
+          let a = agg.get(st) || {d:0,r:0};
+          for (const k in v.candidates){
+            const c=v.candidates[k];
+            if (c.party==="DEM") a.d += c.votes||0;
+            else if (c.party==="REP") a.r += c.votes||0;
+          }
+          agg.set(st, a);
+        });
+      }
+      statesG.selectAll("path").attr("fill", s=>{
+        const a = agg.get(String(s.id).padStart(2,'0'));
+        if (!a) return "#f7f9ff";
+        const v = {candidates:{D:{party:"DEM",votes:a.d},R:{party:"REP",votes:a.r}}};
+        return colourCellDemRep(v);
+      });
+    }
+
+    /* ------------------------------ winners panel ------------------------------ */
+    function rebuildWinners(){
+      winnersEl.innerHTML = "";
+      if (!currentRace){
+        winnersEl.innerHTML = '<div class="row muted">No data yet.</div>'; return;
+      }
+
+      let D=0, R=0, O=0, total=0;
+      if (currentRace==='H'){
+        raceDistrictData.H.forEach(v=>{
+          for (const k in v.candidates){
+            const c=v.candidates[k];
+            if (c.party==="DEM") D += c.votes||0;
+            else if (c.party==="REP") R += c.votes||0;
+            else O += c.votes||0;
+          }
+        });
+      } else {
+        raceCountyData[currentRace].forEach(v=>{
+          for (const k in v.candidates){
+            const c=v.candidates[k];
+            if (c.party==="DEM") D += c.votes||0;
+            else if (c.party==="REP") R += c.votes||0;
+            else O += c.votes||0;
+          }
+        });
+      }
+      total = D+R+O;
+      if (!total){ winnersEl.innerHTML = '<div class="row muted">No data yet.</div>'; return; }
+
+      const rows = [
+        {name:"Democrat", votes:D, cls:"dem"},
+        {name:"Republican", votes:R, cls:"gop"},
+      ];
+      if (O>0) rows.push({name:"Other", votes:O, cls:""});
+
+      rows.sort((a,b)=>b.votes-a.votes);
+      rows.forEach((r,i)=>{
+        const el = document.createElement('div');
+        el.className = 'cand ' + r.cls + (i===0 ? ' leader' : '');
+        el.innerHTML = `
+          <span class="name">${r.name}</span>
+          <span class="votes">${r.votes.toLocaleString()} (${(r.votes/total*100).toFixed(1)}%)</span>`;
+        winnersEl.appendChild(el);
+      });
+    }
+
+    /* ------------------------------ click details ------------------------------ */
+    function handleClickCounty(feature){
+      if (!currentRace || currentRace==='H'){ detailsEl.innerHTML = '<span class="muted">Switch to P/G/S to see county results.</span>'; return; }
+      const id = String(feature.id).padStart(5,'0');
+      const meta = countyMeta.get(id) || {state:'', county:'(unknown)'};
+      const cell = raceCountyData[currentRace].get(id);
+
+      if (!cell){
+        detailsEl.innerHTML = `<div><span class="k">${meta.county}, ${meta.state}</span> <span class="pill">${labelFor(currentRace)}</span><div class="muted">No data in cache yet.</div></div>`;
+        return;
+      }
+      showCellDetails(`${meta.county}, ${meta.state}`, cell, labelFor(currentRace));
+    }
+
+    function handleClickDistrict(feature){
+      if (currentRace!=='H'){ detailsEl.innerHTML = '<span class="muted">Switch to House to see district results.</span>'; return; }
+      const geoid = String(feature.properties.GEOID||"").trim();
+      const meta = districtMeta.get(geoid) || {state:'', name:`District ${geoid.slice(2)}`};
+      const cell = raceDistrictData.H.get(geoid);
+
+      if (!cell){
+        detailsEl.innerHTML = `<div><span class="k">${meta.name}, ${meta.state}</span> <span class="pill">House</span><div class="muted">No data in cache yet.</div></div>`;
+        return;
+      }
+      showCellDetails(`${meta.name}, ${meta.state}`, cell, 'House');
+    }
+
+    function showCellDetails(title, cell, raceLabel){
+      const rows = Object.entries(cell.candidates||{})
+        .map(([name,obj])=>({name,party:obj.party||'',votes:+obj.votes||0}))
+        .sort((a,b)=>b.votes-a.votes);
+      const total = rows.reduce((s,r)=>s+r.votes,0) || 1;
+
+      let html = `<div><span class="k">${title}</span> <span class="pill">${raceLabel}</span></div>`;
+      html += `<div class="muted" style="margin:.2rem 0 .4rem">Total votes: ${total.toLocaleString()}</div>`;
+      rows.forEach(r=>{
+        const tag = r.party==='DEM'?'(D)':r.party==='REP'?'(R)':r.party?`(${r.party})`:'';
+        html += `<div class="cand ${r.party==='DEM'?'dem':r.party==='REP'?'gop':''}">
+          <span class="name">${r.name} ${tag}</span>
+          <span>${r.votes.toLocaleString()} (${(r.votes/total*100).toFixed(1)}%)</span>
+        </div>`;
+      });
+      detailsEl.innerHTML = html;
+    }
+
+    /* --------------------------------- helpers -------------------------------- */
+    function labelFor(r){ return r==='P'?'President':r==='G'?'Governor':r==='S'?'Senate':'House'; }
+    function setStatus(msg){ statusEl.textContent = msg; }
+
+    /* ------------------------------- HUD helpers ------------------------------- */
+    const hud = {
+      el: document.getElementById('hud'),
+      progEl: document.getElementById('hud-progress'),
+      barEl: document.getElementById('hud-bar'),
+      subEl: document.getElementById('hud-sub'),
+      set(k, v){
+        const rows = this.el.querySelectorAll('.row');
+        if (k === 'status') rows[0].innerHTML = `<span class="dot"></span><b>Status:</b> ${v}`;
+        if (k === 'race')   rows[1].innerHTML = `<b>Race:</b> ${v}`;
+        if (k === 'source') rows[2].innerHTML = `<b>Source:</b> ${v}`;
+        if (k === 'progress'){
+          this.progEl.textContent = v.text;
+          this.barEl.style.width = v.pct + '%';
+        }
+        if (k === 'sub') this.subEl.textContent = v;
+      }
+    };
+
+    function describeLayer(){
+      return (currentRace === 'H') ? 'districts (House)' : 'counties (' + labelFor(currentRace) + ')';
+    }
+    </script>
+    </body>
+    </html>
