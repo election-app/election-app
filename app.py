@@ -27,6 +27,7 @@ def fetch_one(url, cache_key, cache_bucket):
         if r.ok:
             with _cache_lock:
                 _cache[cache_bucket][cache_key] = {"payload": r.text, "ts": time.time()}
+                print("Fetched upstream:", cache_key, "->", len(r.text), "bytes")
     except Exception as e:
         print("Poll error:", e)
 
