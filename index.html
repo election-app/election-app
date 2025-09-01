@@ -290,7 +290,7 @@ Promise.all([
 
       // Always fetch all four races
       // Batch the states to avoid 200 requests hammering backend at once
-const batchSize = 10;   // how many states per batch
+const batchSize = 5;   // how many states per batch
 for (let i = 0; i < states.length; i += batchSize){
   const batch = states.slice(i, i + batchSize);
 
@@ -308,7 +308,7 @@ for (let i = 0; i < states.length; i += batchSize){
   }
 
   // short pause between batches
-  await new Promise(r => setTimeout(r, 1000));
+  await new Promise(r => setTimeout(r, 2000));
 }
 
 
