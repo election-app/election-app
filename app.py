@@ -6,8 +6,51 @@ import unicodedata, os
 app = Flask(__name__, static_folder='.', static_url_path='')
 
 API_KEY       = "4uwfiazjez9koo7aju9ig4zxhr"
-ELECTION_DATE = "2024-11-05"
 BASE_URL      = "https://api2-app2.onrender.com/v2/elections"
+ELECTION_DATE = "2024-11-05"
+POLL_INTERVAL = 15  # seconds
+
+_cache = {"states": {}, "districts": {}}
+_cache_lock = threading.Lock()
+
+import concurrent.futures
+
+ALL_STATES = [
+    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","IA","ID","IL","IN","KS","KY",
+    "LA","MA","MD","ME","MI","MN","MO","MS","MT","NC","ND","NE","NH","NJ","NM","NV","NY",
+    "OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VA","VT","WA","WI","WV","WY"
+]
+
+def fetch_one(url, cache_key, cache_bucket):
+    try:
+        r = requests.get(url, headers={"x-api-key": API_KEY}, timeout=10)
+        if r.ok:
+            with _cache_lock:
+                _cache[cache_bucket][cache_key] = {"payload": r.text, "ts": time.time()}
+    except Exception as e:
+        print("Poll error:", e)
+
+def poll_api():
+    while True:
+        start = time.time()
+        tasks = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+            for state in ALL_STATES:
+                # P, S, G
+                for office in ["P","S","G"]:
+                    url = f"{BASE_URL}/{ELECTION_DATE}?statepostal={state}&officeId={office}&level=ru"
+                    tasks.append(pool.submit(fetch_one, url, (state, office), "states"))
+                # House
+                url = f"{BASE_URL}/{ELECTION_DATE}".replace("/v2/elections", "/v2/districts")
+                url = f"{url}?statepostal={state}&officeId=H&level=ru"
+                tasks.append(pool.submit(fetch_one, url, (state,), "districts"))
+            concurrent.futures.wait(tasks)
+        elapsed = time.time() - start
+        time.sleep(max(0, POLL_INTERVAL - elapsed))
+
+threading.Thread(target=poll_api, daemon=True).start()
+
+
 
 @app.after_request
 def add_no_store(resp):
@@ -223,76 +266,60 @@ def per_county():
 # --- add this bulk endpoint next to /results_state ---
 @app.route("/results_districts")
 def per_districts_bulk():
-    state  = (request.args.get("state") or "").upper()
-    if not state:
-        return jsonify({"ok": False, "error": "missing-params"}), 200
+    state = (request.args.get("state") or "").upper()
+    with _cache_lock:
+        snap = _cache["districts"].get((state,))
+    if not snap:
+        return jsonify({"ok": False, "error": "no-snapshot"}), 200
 
-    # hit simulator's districts endpoint (same host/date as BASE_URL/ELECTION_DATE)
-    url_base = f"{BASE_URL}/{ELECTION_DATE}".replace("/v2/elections/", "/v2/districts/")
-    headers  = {"x-api-key": API_KEY}
     try:
-        resp = requests.get(f"{url_base}?statepostal={state}&level=ru", headers=headers, timeout=6)
-        if resp.status_code != 200:
-            return jsonify({"ok": False, "error": f"upstream-{resp.status_code}"}), 200
-    except Exception as e:
-        return jsonify({"ok": False, "error": "api-unavailable", "detail": str(e)}), 200
-
-    # parse XML into the bulk shape the frontend expects
-    try:
-        root = ET.fromstring(resp.text)
+        root = ET.fromstring(snap["payload"])
     except ET.ParseError:
         return jsonify({"ok": False, "error": "bad-xml"}), 200
 
-    by_geo = {}  # GEOID -> { candidates:[{name,party,votes}], total }
+    districts = {}
     for ru in root.iter("ReportingUnit"):
         geoid = (ru.attrib.get("DistrictId") or "").strip()
-        if not geoid:
-            continue
-        cands = []
-        total = 0
+        if not geoid: continue
+        cands, total = [], 0
         for c in ru.findall("Candidate"):
             votes = _safe_int(c.attrib.get("VoteCount"))
-            first = (c.attrib.get("First","") or "").strip()
-            last  = (c.attrib.get("Last","") or "").strip()
-            full  = f"{first} {last}".strip()
+            full  = f"{(c.attrib.get('First','') or '').strip()} {(c.attrib.get('Last','') or '').strip()}".strip()
             party = (c.attrib.get("Party") or "").upper()
             cands.append({"name": full, "party": party, "votes": votes})
             total += votes
-        by_geo[geoid] = {"candidates": cands, "total": total}
+        districts[geoid] = {"candidates": cands, "total": total}
 
     return jsonify({
         "ok": True,
         "state": state,
         "office": "H",
-        "districts": by_geo
+        "districts": districts
     }), 200
+
 
 
 @app.route("/results_state")
 def per_state_bulk():
-    """
-    OPTIONAL bulk endpoint: return all counties for a state in one call.
-    Front-end can switch to this to reduce thousands of requests → ~50.
-    """
     state  = (request.args.get("state") or "").upper()
     office = (request.args.get("office", "P") or "P").upper()
-    if not state:
-        return jsonify({"ok": False, "error": "missing-params"}), 200
-
-    try:
-        snap = _get_parsed_state(state, office)
-    except Exception as e:
-        return jsonify({"ok": False, "error": "api-unavailable", "detail": str(e)}), 200
-
+    with _cache_lock:
+        snap = _cache["states"].get((state, office))
     if not snap:
         return jsonify({"ok": False, "error": "no-snapshot"}), 200
+
+    try:
+        parsed = _parse_election_xml(snap["payload"])
+    except Exception as e:
+        return jsonify({"ok": False, "error": "parse-failed", "detail": str(e)}), 200
 
     return jsonify({
         "ok": True,
         "state": state,
         "office": office,
-        "counties": snap  # { base_name: { candidates:[...], total:int }, ... }
+        "counties": parsed
     }), 200
+
 
 # (District endpoint left as-is; can be upgraded similarly later.)
 @app.route("/results_cd")

@@ -7,6 +7,24 @@
 <script src="https://d3js.org/d3.v6.min.js"></script>
 <script src="https://d3js.org/topojson.v3.min.js"></script>
 <style>
+    /* map HUD */
+    #hud{
+      position:absolute; left:10px; bottom:10px; z-index:99999;
+      background:rgba(10,25,45,.85); color:#e9f2ff;
+      border:1px solid rgba(255,255,255,.18); border-radius:10px;
+      padding:10px 12px; max-width:320px; font-size:12px; line-height:1.35;
+      box-shadow:0 6px 24px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.06);
+      backdrop-filter: blur(4px);
+    }
+    #hud b{ color:#fff }
+    #hud .row{ margin:2px 0 }
+    #hud .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:#8fd;
+              margin-right:6px; vertical-align:middle; }
+    #hud .muted{ opacity:.8 }
+    #hud .bar{ height:6px; background:rgba(255,255,255,.15); border-radius:999px; overflow:hidden; margin-top:6px }
+    #hud .bar > i{ display:block; height:100%; width:0%; background:#7fd;
+                   transition:width .2s ease }
+
   :root{ --gop:#ec1d19; --dem:#0067cb; --panel:#f6f8fc; --line:#d9e1ef; }
   html,body{height:100%;margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#122}
   header{padding:.6rem 1rem;border-bottom:3px solid var(--dem);display:flex;align-items:center;justify-content:center}
@@ -54,6 +72,15 @@
       <g id="counties" style="display:none"></g>
       <g id="cds" style="display:none"></g>
     </svg>
+    <div id="hud" aria-live="polite">
+      <div class="row"><span class="dot"></span><b>Status:</b> Idle</div>
+      <div class="row"><b>Race:</b> — <span class="muted">(counties/districts)</span></div>
+      <div class="row"><b>Source:</b> —</div>
+      <div class="row"><b>Progress:</b> <span id="hud-progress">0 / 0</span></div>
+      <div class="bar"><i id="hud-bar"></i></div>
+      <div class="row muted" id="hud-sub">—</div>
+    </div>
+
   </div>
 
   <aside id="right">
@@ -128,6 +155,12 @@ raceBtnEls.forEach(btn=>{
     // Otherwise leave blank until user hits Refresh (or Auto).
     paintAll();
     rebuildWinners();
+    hud.set('race', `${labelFor(currentRace)} — ${describeLayer()}`);
+    hud.set('source', 'Server snapshot (backend caches upstream ~15s)');
+    hud.set('status', 'Ready to fetch / paint');
+    hud.set('progress', { text:'0 / 0', pct:0 });
+    hud.set('sub', 'Switch races freely; cached data is reused.');
+
     setStatus(fetchedStatesByRace[currentRace].size ? 'Showing cached data.' : 'Blank. Click Refresh to fetch.');
   });
 });
@@ -138,12 +171,17 @@ autoBtn.onclick = ()=>{
     clearInterval(autoTimer); autoTimer=null;
     autoBtn.textContent='Start Auto';
     setStatus('Auto refresh off.');
+    hud.set('status','Auto refresh off');
+    hud.set('sub','—');
   }else{
     autoTimer = setInterval(refreshAllForCurrentRace, 15000);
     autoBtn.textContent='Stop Auto';
     setStatus('Auto refresh on (15s).');
+    hud.set('status','Auto refresh on (every 15s)');
+    hud.set('sub','Will refresh all states on schedule.');
   }
 };
+
 
 /* ------------------------------- load maps -------------------------------- */
 Promise.all([
@@ -234,21 +272,42 @@ Promise.all([
 });
 
 /* -------------------------- fetch (server snapshot) ------------------------ */
-async function refreshAllForCurrentRace(){
-  if (!currentRace){ setStatus('Choose a race first.'); return; }
+    async function refreshAllForCurrentRace(){
+      if (!currentRace){
+        setStatus('Choose a race first.');
+        return;
+      }
 
-  setStatus('Refreshing… (server snapshot)');
-  const states = Object.values(fipsToPostal);
+      hud.set('status', 'Refreshing…');
+      hud.set('source', 'Server snapshot (backend caches upstream ~15s)');
+      hud.set('race', `${labelFor(currentRace)} — ${describeLayer()}`);
+      hud.set('sub', 'Fetching all races, one state at a time; repainting after each.');
 
-  if (currentRace === 'H'){
-    for (const st of states){ await fetchDistrictBulk(st); }
-  } else {
-    for (const st of states){ await fetchStateBulk(st, currentRace); }
-  }
-  setStatus('Last update: ' + new Date().toLocaleTimeString());
-  paintAll();
-  rebuildWinners();
-}
+      const states = Object.values(fipsToPostal);
+      
+      let done = 0;
+      hud.set('progress', { text: `0 / ${states.length}`, pct: 0 });
+
+      // Always fetch all four races
+      for (const st of states){
+        await fetchStateBulk(st, 'P');
+        await fetchStateBulk(st, 'G');
+        await fetchStateBulk(st, 'S');
+        await fetchDistrictBulk(st);
+        done++;
+        hud.set('progress', {
+          text: `${done} / ${states.length}`,
+          pct: Math.round(done/states.length*100)
+        });
+        hud.set('sub', `Last: ${st} (${new Date().toLocaleTimeString()})`);
+      }
+
+      hud.set('status', 'Up to date');
+      hud.set('sub', 'Last paint: ' + new Date().toLocaleTimeString());
+      setStatus('Last update: ' + new Date().toLocaleTimeString());
+      paintAll();
+      rebuildWinners();
+    }
 
 async function fetchStateBulk(stateCode, race){
   const url = `/results_state?state=${stateCode}&office=${race}`;
@@ -494,6 +553,32 @@ function showCellDetails(title, cell, raceLabel){
 /* --------------------------------- helpers -------------------------------- */
 function labelFor(r){ return r==='P'?'President':r==='G'?'Governor':r==='S'?'Senate':'House'; }
 function setStatus(msg){ statusEl.textContent = msg; }
+/* ------------------------------- HUD helpers ------------------------------- */
+const hud = {
+  el: document.getElementById('hud'),
+  progEl: document.getElementById('hud-progress'),
+  barEl: document.getElementById('hud-bar'),
+  subEl: document.getElementById('hud-sub'),
+  set(k, v){
+    const map = {
+      status: 0, race: 1, source: 2, progress: 3, sub: 5
+    };
+    const rows = this.el.querySelectorAll('.row');
+    if (k === 'status') rows[0].innerHTML = `<span class="dot"></span><b>Status:</b> ${v}`;
+    if (k === 'race')   rows[1].innerHTML = `<b>Race:</b> ${v}`;
+    if (k === 'source') rows[2].innerHTML = `<b>Source:</b> ${v}`;
+    if (k === 'progress'){
+      this.progEl.textContent = v.text;
+      this.barEl.style.width = v.pct + '%';
+    }
+    if (k === 'sub') this.subEl.textContent = v;
+  }
+};
+
+function describeLayer(){
+  return (currentRace === 'H') ? 'districts (House)' : 'counties (' + labelFor(currentRace) + ')';
+}
+
 </script>
 </body>
 </html>
