@@ -115,6 +115,8 @@ let countyKeyToId = new Map();
 let countyMeta = new Map();
 let districtIdSet = new Set();
 let districtMeta = new Map();
+let districtNumToGeoid = new Map(); // <-- make it global
+
 
 /* ------------------------------ data storage ------------------------------ */
 const raceCountyData = { P:new Map(), G:new Map(), S:new Map() };
@@ -265,39 +267,52 @@ Promise.all([
 });
 
 /* -------------------------- fetch (server snapshot) ------------------------ */
-async function refreshAllForCurrentRace(){
-  if (!currentRace){
-    setStatus('Choose a race first.');
-    return;
+
+    // --- helpers for retry & sleep ---
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function fetchJSONWithRetry(url, tries = 3){
+  let lastErr;
+  for (let i=0; i<tries; i++){
+    try{
+      const r = await fetch(url, { cache:'no-store' });
+      if (r.ok) return await r.json();
+      if (![429,502,503,504].includes(r.status)) return null;
+    }catch(e){ lastErr = e; }
+    await sleep(300 * (i+1)); // backoff
   }
+  return null;
+}
+
+async function refreshAllForCurrentRace(){
+  if (!currentRace){ setStatus('Choose a race first.'); return; }
 
   hud.set('status', 'Refreshing…');
   hud.set('source', 'Server snapshot (backend caches upstream ~60s)');
   hud.set('race', `${labelFor(currentRace)} — ${describeLayer()}`);
-  hud.set('sub', 'Fetching all races, one state at a time; repainting after each.');
+  hud.set('sub', 'Fetching one race, one state at a time.');
 
   const states = Object.values(fipsToPostal);
-  
   let done = 0;
+  const batchSize = 5;
   hud.set('progress', { text: `0 / ${states.length}`, pct: 0 });
 
-  const batchSize = 10;
   for (let i = 0; i < states.length; i += batchSize){
     const batch = states.slice(i, i + batchSize);
 
     for (const st of batch){
-      await fetchStateBulk(st, 'P');
-      await fetchStateBulk(st, 'G');
-      await fetchStateBulk(st, 'S');
-      await fetchDistrictBulk(st);
+      if (currentRace === 'H') {
+        await fetchDistrictBulk(st);
+      } else {
+        await fetchStateBulk(st, currentRace);
+      }
       done++;
-      hud.set('progress', {
-        text: `${done} / ${states.length}`,
-        pct: Math.round(done/states.length*100)
-      });
+      hud.set('progress', { text: `${done} / ${states.length}`, pct: Math.round(done/states.length*100) });
       hud.set('sub', `Last: ${st} (${new Date().toLocaleTimeString()})`);
+      await sleep(120 + Math.random()*180);
     }
-    await new Promise(r => setTimeout(r, 1000));
+
+    await sleep(400); // pause between batches
   }
 
   hud.set('status', 'Up to date');
@@ -309,80 +324,58 @@ async function refreshAllForCurrentRace(){
 
 async function fetchStateBulk(stateCode, race){
   const url = `/results_state?state=${stateCode}&office=${race}`;
-  try{
-    const r = await fetch(url, {cache:'no-store'});
-    if (!r.ok) return false;
-    const data = await r.json();
-    if (!data.ok || !data.counties) return false;
+  const data = await fetchJSONWithRetry(url, 3);
+  if (!data || !data.ok || !data.counties) return false;
 
-    const store = raceCountyData[race];
-    for (const [base, info] of Object.entries(data.counties)){
-      const id = countyKeyToId.get(stateCode + ":" + base);
-      if (!id) continue;
-      const keyId = String(id).padStart(5,'0');
-      const cand = {};
-      (info.candidates||[]).forEach(c=>{
-        const nm = (race==='P') ? (c.name||'').trim().split(' ').pop() : (c.name||'').trim();
-        cand[nm] = { votes:+c.votes||0, party:(c.party||'').toUpperCase() };
-      });
-      const total = Object.values(cand).reduce((s,c)=>s+(c.votes||0),0);
-      store.set(keyId, { candidates:cand, total });
-    }
-    fetchedStatesByRace[race].add(stateCode);
-    return true;
-  }catch(_){ return false; }
+  const store = raceCountyData[race];
+  for (const [base, info] of Object.entries(data.counties)){
+    const id = countyKeyToId.get(stateCode + ":" + base);
+    if (!id) continue;
+    const keyId = String(id).padStart(5,'0');
+    const cand = {};
+    (info.candidates||[]).forEach(c=>{
+      const nm = (race==='P') ? (c.name||'').trim().split(' ').pop() : (c.name||'').trim();
+      cand[nm] = { votes:+c.votes||0, party:(c.party||'').toUpperCase() };
+    });
+    const total = Object.values(cand).reduce((s,c)=>s+(c.votes||0),0);
+    store.set(keyId, { candidates:cand, total });
+  }
+  fetchedStatesByRace[race].add(stateCode);
+  return true;
 }
 
-    async function fetchDistrictBulk(stateCode){
-      const tryUrls = [
-        `/results_districts?state=${stateCode}&office=H`,
-      ];
-      let data = null;
 
-      for (const url of tryUrls){
-        try{
-          const r = await fetch(url, { cache:'no-store' });
-          if (!r.ok) continue;
-          const j = await r.json();
-          if (j && j.ok && (j.districts || j.cd)) { data = j; break; }
-        }catch(_){}
-      }
-      if (!data) return false;
+   async function fetchDistrictBulk(stateCode){
+  const url = `/results_districts?state=${stateCode}&office=H`;
+  const data = await fetchJSONWithRetry(url, 3);
+  if (!data || !data.ok) return false;
 
-      // Ensure the state→2-digit→geoid map is available (it’s populated during map load)
-      // If your map-load block defined it inside a closure, this guards against a ReferenceError.
-      if (typeof window.districtNumToGeoid === 'undefined') {
-        window.districtNumToGeoid = new Map();
-      }
+  const store = raceDistrictData.H;
+  const src = data.districts || data.cd || {};
+  let accepted = 0;
 
-      const store = raceDistrictData.H;
-      const src = data.districts || data.cd || {};
-      let accepted = 0;
-
-      for (const [rawKey, info] of Object.entries(src)) {
-        let geoid = String(rawKey).trim();
-
-        if (!districtIdSet.has(geoid)) {
-          const digits = (geoid.match(/\d+/) || [""])[0].padStart(2,"0");
-          const guess = window.districtNumToGeoid.get(`${stateCode}-${digits}`);
-          if (guess) geoid = guess;
-        }
-
-        if (!districtIdSet.has(geoid)) continue;
-
-        const cand = {};
-        (info.candidates || []).forEach(c=>{
-          const nm = (c.name||'').trim();
-          cand[nm] = { votes:+c.votes||0, party:(c.party||'').toUpperCase() };
-        });
-        const total = Object.values(cand).reduce((s,c)=>s+(c.votes||0),0);
-        store.set(geoid, { candidates:cand, total });
-        accepted++;
-      }
-
-      fetchedStatesByRace.H.add(stateCode);
-      return accepted > 0;
+  for (const [rawKey, info] of Object.entries(src)) {
+    let geoid = String(rawKey).trim();
+    if (!districtIdSet.has(geoid)) {
+      const digits = (geoid.match(/\d+/) || [""])[0].padStart(2,"0");
+      const guess = window.districtNumToGeoid?.get?.(`${stateCode}-${digits}`);
+      if (guess) geoid = guess;
     }
+    if (!districtIdSet.has(geoid)) continue;
+
+    const cand = {};
+    (info.candidates || []).forEach(c=>{
+      const nm = (c.name||'').trim();
+      cand[nm] = { votes:+c.votes||0, party:(c.party||'').toUpperCase() };
+    });
+    const total = Object.values(cand).reduce((s,c)=>s+(c.votes||0),0);
+    store.set(geoid, { candidates:cand, total });
+    accepted++;
+  }
+  fetchedStatesByRace.H.add(stateCode);
+  return accepted > 0;
+}
+
 
     /* --------------------------------- paint ---------------------------------- */
     function mix(a,b,t){ return Math.round(a+(b-a)*t); }
