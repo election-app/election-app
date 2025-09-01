@@ -8,7 +8,7 @@ app = Flask(__name__, static_folder='.', static_url_path='')
 API_KEY       = "4uwfiazjez9koo7aju9ig4zxhr"
 BASE_URL      = "https://api2-app2.onrender.com/v2/elections"
 ELECTION_DATE = "2024-11-05"
-POLL_INTERVAL = 60  # seconds
+POLL_INTERVAL = 6000  # seconds
 
 _cache = {"states": {}, "districts": {}}
 _cache_lock = threading.Lock()
