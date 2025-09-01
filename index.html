@@ -59,11 +59,12 @@ const rpmChart = new Chart(ctx, { type:'line', data:rpmData, options:{ scales:{ 
 
 async function poll(){
   try{
-    const r = await fetch('/metrics', { cache:'no-store' });
+    const r = await fetch('/outgoing_count', { cache:'no-store' });
     if(!r.ok) throw new Error('metrics http '+r.status);
     const j = await r.json();
-    elTotal.textContent = (j.total_calls ?? 0).toLocaleString();
-    elRpm.textContent   = (j.calls_per_minute ?? 0).toLocaleString();
+    elTotal.textContent = (j.outgoing_api_calls ?? 0).toLocaleString();
+elRpm.textContent   = '—'; // unless you also add rpm calc server-side
+
     elStatus.textContent = 'last update: '+new Date().toLocaleTimeString();
 
     const nowLabel = new Date().toLocaleTimeString();
