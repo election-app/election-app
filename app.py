@@ -8,7 +8,7 @@ app = Flask(__name__, static_folder=".", static_url_path="")
 API_KEY       = os.environ.get("API_KEY", "4uwfiazjez9koo7aju9ig4zxhr")
 BASE_URL      = "https://api2-app2.onrender.com/v2/elections"
 ELECTION_DATE = "2024-11-05"
-POLL_INTERVAL = 60  # seconds
+POLL_INTERVAL = 90  # seconds
 
 # caches
 _cache = {"states": {}, "districts": {}}
@@ -89,14 +89,23 @@ def fetch_one_district(state):
         print("Error fetching districts", state, e)
 
 def poll_api():
+    offices = ["P","S","G","H"]
+    idx = 0
     while True:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        office = offices[idx % len(offices)]
+        idx += 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:  # was 8
             futures = []
             for st in ALL_STATES:
-                for office in ["P","G","S"]:
+                if office == "H":
+                    futures.append(ex.submit(fetch_one_district, st))
+                else:
                     futures.append(ex.submit(fetch_one_state, st, office))
-                futures.append(ex.submit(fetch_one_district, st))
-            for f in futures: f.result()
+            for f in futures: 
+                try:
+                    f.result()
+                except Exception as e:
+                    print("Poller task error:", e)
         time.sleep(POLL_INTERVAL)
 
 threading.Thread(target=poll_api, daemon=True).start()
