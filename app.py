@@ -241,11 +241,18 @@ def get_log():
         max_seq = _log_seq
     return jsonify({"max_seq":max_seq,"items":items})
 
-@app.before_first_request
-def start_hub():
-    threading.Thread(target=_hub_loop, daemon=True).start()
 
+# after defining app = Flask(...)
+# and after defining _hub_loop
+
+def _start_hub_once():
+    if HUB_MODE:
+        t = threading.Thread(target=_hub_loop, daemon=True)
+        t.start()
+        log("Hub thread launched at import time.")
+
+# kick off the hub as soon as the module is imported (gunicorn workers too)
+_start_hub_once()
 
 if __name__ == "__main__":
-    threading.Thread(target=_hub_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT","9050")))
