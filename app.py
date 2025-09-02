@@ -13,8 +13,7 @@
 #
 # Scale up later by raising STATES_PER_CYCLE, lowering the delays, and (carefully) bumping MAX_CONCURRENCY.
 
-# add this near other globals / tunables
-_hub_q = queue.Queue()
+
 
 import os, time, json, threading, itertools, queue
 from collections import deque
@@ -22,6 +21,9 @@ from datetime import datetime
 from flask import Flask, send_from_directory, jsonify, Response, request
 import requests
 import xml.etree.ElementTree as ET
+
+# add this near other globals / tunables
+_hub_q = queue.Queue()
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
