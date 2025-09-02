@@ -2,219 +2,149 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Simple County Reader</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Presidential Counties — Hub & Spokes Cache</title>
 <style>
-  :root { --ok:#0a7f2e; --err:#b00020; --muted:#667; --line:#dfe6f2; --bg:#f7f9ff; }
-  *{box-sizing:border-box} body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#123}
-  header{padding:10px 12px;border-bottom:2px solid #2b6cb0;background:#fff;position:sticky;top:0;z-index:10}
-  #wrap{display:grid;grid-template-columns:1fr 420px;gap:0;height:calc(100vh - 54px)}
-  #left, #right{overflow:auto}
-  #left{padding:10px;background:#fff}
-  #right{padding:10px;border-left:1px solid var(--line);background:#fafcff}
-  h2{margin:10px 0 8px 0}
-  .controls{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
-  .controls select, .controls button{padding:8px;border:1px solid var(--line);border-radius:6px;background:#fff}
-  .controls button[disabled]{opacity:.6;cursor:not-allowed}
-  .pill{display:inline-block;padding:.15rem .45rem;border:1px solid var(--line);border-radius:999px;background:#fff;margin-left:.35rem;font-size:.8rem}
-  .county{border:1px solid var(--line);border-radius:8px;padding:8px;margin:8px 0;background:#fff}
-  .county .name{font-weight:700}
-  .muted{color:var(--muted)}
-  ul#logs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
-  ul#logs li{border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px}
-  ul#logs li.ok{border-left:4px solid var(--ok)}
-  ul#logs li.err{border-left:4px solid var(--err)}
-  .time{font-size:12px;color:#8aa}
-  .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  progress{width:100%;height:10px}
+  :root {
+    --bg:#0b1220; --fg:#eaf0ff; --muted:#9fb3d1; --card:#14233d; --accent:#8ab4ff; --ok:#a5f3a5; --warn:#ffd79a;
+  }
+  * { box-sizing: border-box }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+               font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  header { padding:12px 16px; border-bottom: 1px solid rgba(255,255,255,.12); background: #0e1730; }
+  header .title { font-weight:700; letter-spacing:.2px }
+  .wrap { display:grid; grid-template-columns: 1fr 420px; gap:14px; padding:14px; height: calc(100% - 54px); }
+  .panel { background: var(--card); border:1px solid rgba(255,255,255,.14); border-radius:14px;
+           box-shadow: 0 8px 28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06); display:flex; flex-direction:column; min-height:0; }
+  .panel h2 { margin:0; padding:12px 14px; font-size:14px; letter-spacing:.3px; color:var(--muted);
+              border-bottom:1px solid rgba(255,255,255,.08) }
+  .body { padding:12px; overflow:auto; }
+  .meta { font-size:12px; color:var(--muted); margin-left:8px }
+  .row { padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.07) }
+  .row:last-child { border-bottom:0 }
+  .county { font-weight:600 }
+  .cand { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px }
+  .logline { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; white-space: pre-wrap; }
+  .ok { color: var(--ok) }
+  .warn { color: var(--warn) }
+  .controls { padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; gap:8px; align-items:center }
+  button { background:#1f2d50; color:var(--fg); border:1px solid rgba(255,255,255,.18); border-radius:9px; padding:8px 10px; cursor:pointer }
+  button:hover { background:#213360 }
+  .badge { display:inline-block; background:#17274a; padding:2px 8px; border-radius: 999px; font-size:11px; margin-left:6px }
 </style>
 </head>
 <body>
-<header>
-  <div class="row">
-    <div><b>Simple County Reader</b> <span class="pill" id="hint">Pick a state & race</span></div>
-    <div class="muted" id="status">Idle</div>
+  <header>
+    <div class="title">Presidential County Cache <span class="meta" id="statusMeta">loading…</span></div>
+  </header>
+
+  <div class="wrap">
+    <section class="panel">
+      <h2>Counties (auto-sorted by state, then FIPS)</h2>
+      <div class="controls">
+        <button id="refreshBtn" title="Refresh now">Refresh</button>
+        <span class="badge" id="countBadge">0 counties</span>
+      </div>
+      <div class="body" id="countiesBody"></div>
+    </section>
+
+    <aside class="panel">
+      <h2>Activity Log</h2>
+      <div class="controls">
+        <button id="nudgeBtn" title="Ask hub to fetch a couple of states">Nudge Hub</button>
+        <span class="badge" id="hubBadge">hub?</span>
+      </div>
+      <div class="body" id="logBody"></div>
+    </aside>
   </div>
-</header>
-
-<div id="wrap">
-  <!-- LEFT: County readout -->
-  <section id="left">
-    <h2>Counties</h2>
-    <div class="controls">
-      <label>State
-        <select id="stateSel">
-          <option value="">—</option>
-          <option>AL</option><option>AK</option><option>AZ</option><option>AR</option><option>CA</option>
-          <option>CO</option><option>CT</option><option>DE</option><option>FL</option><option>GA</option>
-          <option>HI</option><option>ID</option><option>IL</option><option>IN</option><option>IA</option>
-          <option>KS</option><option>KY</option><option>LA</option><option>ME</option><option>MD</option>
-          <option>MA</option><option>MI</option><option>MN</option><option>MS</option><option>MO</option>
-          <option>MT</option><option>NE</option><option>NV</option><option>NH</option><option>NJ</option>
-          <option>NM</option><option>NY</option><option>NC</option><option>ND</option><option>OH</option>
-          <option>OK</option><option>OR</option><option>PA</option><option>RI</option><option>SC</option>
-          <option>SD</option><option>TN</option><option>TX</option><option>UT</option><option>VT</option>
-          <option>VA</option><option>WA</option><option>WV</option><option>WI</option><option>WY</option>
-          <option>DC</option>
-        </select>
-      </label>
-      <label>Race
-        <select id="raceSel">
-          <option value="P">President</option>
-          <option value="G">Governor</option>
-          <option value="S">Senate</option>
-        </select>
-      </label>
-      <button id="runBtn" disabled>Run</button>
-      <button id="stopBtn" disabled>Stop</button>
-    </div>
-
-    <div class="muted" id="progressRow">
-      <div>Progress: <span id="progTxt">0 / 0</span></div>
-      <progress id="progBar" max="100" value="0"></progress>
-    </div>
-
-    <div id="counties"></div>
-  </section>
-
-  <!-- RIGHT: Logs (append-only) -->
-  <aside id="right">
-    <h2>Logs</h2>
-    <ul id="logs"></ul>
-  </aside>
-</div>
 
 <script>
-  const stateSel = document.getElementById('stateSel');
-  const raceSel  = document.getElementById('raceSel');
-  const runBtn   = document.getElementById('runBtn');
-  const stopBtn  = document.getElementById('stopBtn');
-  const hint     = document.getElementById('hint');
-  const statusEl = document.getElementById('status');
-  const logsEl   = document.getElementById('logs');
-  const countiesEl = document.getElementById('counties');
-  const progTxt  = document.getElementById('progTxt');
-  const progBar  = document.getElementById('progBar');
+const countiesBody = document.getElementById('countiesBody');
+const logBody = document.getElementById('logBody');
+const statusMeta = document.getElementById('statusMeta');
+const countBadge = document.getElementById('countBadge');
+const hubBadge = document.getElementById('hubBadge');
+const refreshBtn = document.getElementById('refreshBtn');
+const nudgeBtn = document.getElementById('nudgeBtn');
 
-  let abort = { flag:false };
+let lastLogSeq = 0;
 
-  // Enable Run when a state is selected
-  stateSel.addEventListener('change', () => {
-    runBtn.disabled = !stateSel.value;
-    hint.textContent = stateSel.value ? `Ready for ${stateSel.value} (${raceSel.value})` : 'Pick a state & race';
-  });
+async function fetchJSON(url){
+  try{
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return null;
+    return await r.json();
+  }catch(e){ return null; }
+}
 
-  raceSel.addEventListener('change', () => {
-    hint.textContent = stateSel.value ? `Ready for ${stateSel.value} (${raceSel.value})` : 'Pick a state & race';
-  });
+function fmtVotes(n){
+  return (n||0).toLocaleString('en-US');
+}
 
-  runBtn.addEventListener('click', () => startRun());
-  stopBtn.addEventListener('click', () => { abort.flag = true; log('Stop requested by user.', 'err'); });
-
-  function ts(){ return new Date().toLocaleTimeString(); }
-
-  function log(msg, cls='ok'){
-    const li = document.createElement('li');
-    li.className = cls === 'err' ? 'err' : (cls === 'ok' ? 'ok' : '');
-    li.innerHTML = `<div>${msg}</div><div class="time">${ts()}</div>`;
-    logsEl.appendChild(li);
-    // Keep the latest log in view
-    logsEl.scrollTop = logsEl.scrollHeight;
+function renderHealth(h){
+  if (!h){
+    statusMeta.textContent = 'unreachable';
+    hubBadge.textContent = 'hub ?';
+    return;
   }
+  statusMeta.textContent = `hub=${h.hub_mode ? 'on' : 'off'} • states=${h.states_cached} • counties=${h.counties_total}`;
+  hubBadge.textContent = h.hub_mode ? 'hub on' : 'hub off';
+}
 
-  function setBusy(b){
-    runBtn.disabled = b;
-    stopBtn.disabled = !b;
-    stateSel.disabled = b;
-    raceSel.disabled = b;
-    statusEl.textContent = b ? 'Working…' : 'Idle';
-  }
-
-  function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
-
-  async function startRun(){
-    const state = stateSel.value;
-    const office = raceSel.value;
-    if (!state) return;
-
-    abort.flag = false;
-    setBusy(true);
-
-    // We keep log history; add a separator for readability
-    log(`— — — New run for ${state} (${labelFor(office)}) — — —`, 'info');
-
-    // Step 1: Fetch snapshot
-    log(`Step 1: Fetch /results_state?state=${state}&office=${office}`, 'info');
-    let data = null;
-    try{
-      const r = await fetch(`/results_state?state=${state}&office=${office}`, { cache:'no-store' });
-      const j = await r.json();
-      if (!j.ok || !j.counties) {
-        log(`Step 1 FAILED: ${JSON.stringify(j)}`, 'err');
-        setBusy(false);
-        return;
-      }
-      data = j.counties;
-      log(`Step 1 OK: received ${Object.keys(data).length} counties`, 'ok');
-    }catch(e){
-      log(`Step 1 ERROR: ${e}`, 'err');
-      setBusy(false);
-      return;
-    }
-
-    // Step 2: Iterate counties one by one
-    const entries = Object.entries(data);
-    progTxt.textContent = `0 / ${entries.length}`;
-    progBar.value = 0; progBar.max = 100;
-
-    log('Step 2: Rendering counties one by one…', 'info');
-    countiesEl.innerHTML = ''; // clear panel for fresh readout (logs are preserved)
-    for (let i=0; i<entries.length; i++){
-      if (abort.flag){
-        log('Run aborted during Step 2.', 'err');
-        break;
-      }
-      const [baseKey, info] = entries[i];
-      renderCounty(baseKey, info);
-      const pct = Math.round(((i+1)/entries.length)*100);
-      progTxt.textContent = `${i+1} / ${entries.length}`;
-      progBar.value = pct;
-      await sleep(150); // small delay so you can see them stream in
-    }
-    if (!abort.flag){
-      log('Step 2 OK: Finished rendering all counties', 'ok');
-      log('Step 3: Done.', 'ok');
-    }
-
-    setBusy(false);
-  }
-
-  function renderCounty(baseKey, info){
+function renderCounties(rows){
+  countiesBody.innerHTML = '';
+  let total = 0;
+  for (const r of rows){
+    total++;
     const div = document.createElement('div');
-    div.className = 'county';
-    const rows = (info.candidates||[]).slice().sort((a,b)=>(b.votes||0)-(a.votes||0));
-    const total = rows.reduce((s,c)=>s+(c.votes||0),0);
-
-    let inner = `<div class="name">${toTitle(baseKey)} <span class="pill">${(total||0).toLocaleString()} votes</span></div>`;
-    if (!rows.length){
-      inner += `<div class="muted">No candidates reported.</div>`;
-    } else {
-      inner += rows.map(c=>{
-        const tag = c.party ? ` (${c.party})` : '';
-        const pct = total ? ` — ${(100*(c.votes||0)/total).toFixed(1)}%` : '';
-        return `<div>${c.name}${tag}: <b>${(c.votes||0).toLocaleString()}</b>${pct}</div>`;
-      }).join('');
-    }
-    div.innerHTML = inner;
-    countiesEl.appendChild(div);
+    div.className = 'row';
+    const candStr = (r.candidates||[]).map(c => `${c.name} (${c.party}) ${fmtVotes(c.votes)}`).join('  •  ');
+    div.innerHTML = `
+      <div class="county">${r.state} — ${r.name} <span class="meta">FIPS ${r.fips}</span></div>
+      <div class="cand">${candStr}</div>
+      <div class="meta">Total: ${fmtVotes(r.total)}</div>
+    `;
+    countiesBody.appendChild(div);
   }
+  countBadge.textContent = `${total} ${total===1?'county':'counties'}`;
+}
 
-  function toTitle(s){
-    // best effort prettifier for base county keys (which are lowercase, suffix-stripped)
-    return (s||'').split(' ').map(w => w ? w[0].toUpperCase()+w.slice(1) : '').join(' ');
+function appendLogs(items){
+  for (const it of items){
+    const div = document.createElement('div');
+    div.className = 'logline ' + (it.lvl === 'WARN' ? 'warn' : 'ok');
+    div.textContent = `[${String(it.seq).padStart(4,'0')}] ${it.ts} ${it.lvl} — ${it.msg}`;
+    logBody.appendChild(div);
   }
+  if (items.length) {
+    logBody.scrollTop = logBody.scrollHeight;
+  }
+}
 
-  function labelFor(r){ return r==='P'?'President':r==='G'?'Governor':'Senate'; }
+async function poll(){
+  const h = await fetchJSON('/health');
+  renderHealth(h);
+
+  const data = await fetchJSON('/cache/p');
+  if (data && data.rows) renderCounties(data.rows);
+
+  const lg = await fetchJSON(`/log?since=${lastLogSeq}`);
+  if (lg && lg.items){
+    appendLogs(lg.items);
+    lastLogSeq = lg.max_seq || lastLogSeq;
+  }
+}
+
+refreshBtn.onclick = () => poll();
+nudgeBtn.onclick = async () => {
+  await fetchJSON('/force_cycle?n=2');
+  // immediately poll to show new logs quickly
+  poll();
+};
+
+// Initial + intervals (slow + gentle)
+poll();
+setInterval(poll, 10000);   // logs & counties refresh every 10s
 </script>
 </body>
 </html>
