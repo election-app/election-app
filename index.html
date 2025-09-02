@@ -313,9 +313,9 @@ window.addEventListener('unhandledrejection', (e)=>{
 let statesFeatures=[], countiesFeatures=[], districtFeatures=[], fipsToPostal={};
 
 Promise.all([
-  d3.json("us-states.topojson"),
-  d3.json("us-counties.topojson"),
-  d3.json("us-cd118.topojson")
+  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json"),
+  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json"),
+  d3.json("cb_2024_us_cd119_500k.json") // adjust path if hosted elsewhere
 ]).then(([stTopo, ctTopo, cdTopo])=>{
   const stateObj =
     stTopo.objects?.states ||
