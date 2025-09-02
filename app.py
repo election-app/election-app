@@ -10,11 +10,6 @@ BASE_URL      = "https://api2-app2.onrender.com/v2/elections"
 ELECTION_DATE = "2024-11-05"
 POLL_INTERVAL = 15  # seconds
 
-# Track outgoing upstream API calls
-_outgoing_count = 0
-_outgoing_lock = threading.Lock()
-
-
 _cache = {"states": {}, "districts": {}}
 _cache_lock = threading.Lock()
 
@@ -379,13 +374,6 @@ def per_district():
             }), 200
 
     return jsonify({"ok": False, "error": "district-not-found"}), 200
-    
-@app.route("/outgoing_count")
-def outgoing_count():
-    with _outgoing_lock:
-        count = _outgoing_count
-    return jsonify({"ok": True, "outgoing_api_calls": count}), 200
-
 
 
 if __name__ == "__main__":
