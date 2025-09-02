@@ -8,7 +8,7 @@ app = Flask(__name__, static_folder='.', static_url_path='')
 API_KEY       = "4uwfiazjez9koo7aju9ig4zxhr"
 BASE_URL      = "https://api2-app2.onrender.com/v2/elections"
 ELECTION_DATE = "2024-11-05"
-POLL_INTERVAL = 15  # seconds
+POLL_INTERVAL = 120  # seconds
 
 _cache = {"states": {}, "districts": {}}
 _cache_lock = threading.Lock()
@@ -34,7 +34,7 @@ def poll_api():
     while True:
         start = time.time()
         tasks = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             for state in ALL_STATES:
                 # P, S, G
                 for office in ["P","S","G"]:
