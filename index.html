@@ -3,90 +3,663 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Outgoing API Call Meter</title>
+<title>Election Map — Click for details, cached by race</title>
+<script src="https://d3js.org/d3.v6.min.js"></script>
+<script src="https://d3js.org/topojson.v3.min.js"></script>
 <style>
-  :root { --bg:#0b1220; --fg:#e9f2ff; --muted:#9fb3d1; --card:#14233d; }
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-  .wrap{display:grid;place-items:center;height:100%}
-  .card{background:var(--card);border:1px solid rgba(255,255,255,.12);border-radius:14px;
-        box-shadow:0 8px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
-        padding:22px 26px; width:min(640px,92vw)}
-  h1{margin:0 0 8px;font-weight:700;font-size:22px}
-  p{margin:4px 0 16px;color:var(--muted);font-size:14px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
-  .box{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:14px}
-  .label{font-size:12px;color:var(--muted);letter-spacing:.02em;text-transform:uppercase}
-  .value{font-size:34px;font-weight:800;margin-top:6px;line-height:1}
-  .row{display:flex;gap:10px;align-items:center;margin-top:16px}
-  button{cursor:pointer;background:#1e90ff;border:none;color:#fff;border-radius:10px;padding:10px 14px;font-weight:700}
-  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted);font-size:12px}
-  canvas{margin-top:20px;width:100%!important;height:220px!important}
+    /* map HUD */
+    #hud{
+      position:absolute; left:10px; bottom:10px; z-index:99999;
+      background:rgba(10,25,45,.85); color:#e9f2ff;
+      border:1px solid rgba(255,255,255,.18); border-radius:10px;
+      padding:10px 12px; max-width:320px; font-size:12px; line-height:1.35;
+      box-shadow:0 6px 24px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.06);
+      backdrop-filter: blur(4px);
+    }
+    #hud b{ color:#fff }
+    #hud .row{ margin:2px 0 }
+    #hud .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:#8fd;
+              margin-right:6px; vertical-align:middle; }
+    #hud .muted{ opacity:.8 }
+    #hud .bar{ height:6px; background:rgba(255,255,255,.15); border-radius:999px; overflow:hidden; margin-top:6px }
+    #hud .bar > i{ display:block; height:100%; width:0%; background:#7fd;
+                   transition:width .2s ease }
+
+  :root{ --gop:#ec1d19; --dem:#0067cb; --panel:#f6f8fc; --line:#d9e1ef; }
+  html,body{height:100%;margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#122}
+  header{padding:.6rem 1rem;border-bottom:3px solid var(--dem);display:flex;align-items:center;justify-content:center}
+  header b{color:var(--gop)}
+  #wrap{display:grid;grid-template-columns:280px 1fr 220px;grid-template-rows:1fr;height:calc(100% - 52px)}
+  aside{background:var(--panel);border-right:1px solid var(--line);overflow:auto}
+  #right{border-left:1px solid var(--line);display:flex;flex-direction:column;gap:8px;padding:10px}
+  #right button{padding:8px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer}
+  #right button.active{background:var(--dem);color:#fff;border-color:transparent}
+  #map{position:relative;background:#fff}
+  svg{width:100%;height:100%}
+  .cand{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;margin:8px;border-radius:8px;background:#fff;border:1px solid var(--line)}
+  .cand.leader{box-shadow:0 2px 10px rgba(0,0,0,.06)}
+  .cand .name{font-weight:700}
+  .cand.dem .name{color:var(--dem)}
+  .cand.gop .name{color:var(--gop)}
+  .muted{opacity:.65}
+  .row{padding:10px}
+  .sep{border:none;border-top:1px solid var(--line);margin:8px 10px}
+  #status{font-size:12px;color:#456}
+  #details .k{color:#445}
+  .pill{display:inline-block;padding:.1rem .4rem;border-radius:999px;border:1px solid var(--line);background:#fff;margin-left:.3rem;font-size:.8rem}
+  /* hover feedback */
+  path.feature:hover{filter:brightness(1.05)}
+
+  /* Step runner styles */
+  .stepbox{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:4px}
+  .stepbox .name{font-weight:700}
+  .stepbox .stat{font-size:12px;margin-top:4px}
+  .stat.ok{color:#0a7f2e}
+  .stat.err{color:#b00020}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Outgoing API Call Meter</h1>
-      <p>Live view of outgoing requests your backend makes upstream.</p>
-      <div class="grid">
-        <div class="box">
-          <div class="label">Total Outgoing Calls</div>
-          <div id="total" class="value">—</div>
-        </div>
-        <div class="box">
-          <div class="label">Calls per Minute</div>
-          <div id="rpm" class="value">—</div>
-        </div>
-      </div>
-      <canvas id="rpmChart"></canvas>
-      <div class="row">
-        <button id="poke">Make a test call</button>
-        <span class="mono" id="status">waiting…</span>
-      </div>
+<header><b>Election Map</b>&nbsp;|&nbsp;<span id="h-race">—</span></header>
+
+<div id="wrap">
+  <aside id="left">
+    <div class="row"><b>Winners</b> <span class="muted" id="scope-label">(select a race)</span></div>
+    <hr class="sep">
+    <div id="winners"><div class="row muted">No data yet.</div></div>
+    <hr class="sep">
+    <div class="row"><b>Details</b></div>
+    <div id="details" class="row muted">Click a county or district…</div>
+    <hr class="sep">
+    <div class="row" id="status">Idle. Choose a race →</div>
+  </aside>
+
+  <div id="map">
+    <svg viewBox="0 0 960 600" preserveAspectRatio="xMidYMid meet">
+      <g id="states"></g>
+      <g id="counties" style="display:none"></g>
+      <g id="cds" style="display:none"></g>
+    </svg>
+    <div id="hud" aria-live="polite">
+      <div class="row"><span class="dot"></span><b>Status:</b> Idle</div>
+      <div class="row"><b>Race:</b> — <span class="muted">(counties/districts)</span></div>
+      <div class="row"><b>Source:</b> —</div>
+      <div class="row"><b>Progress:</b> <span id="hud-progress">0 / 0</span></div>
+      <div class="bar"><i id="hud-bar"></i></div>
+      <div class="row muted" id="hud-sub">—</div>
     </div>
+
   </div>
 
+  <aside id="right">
+    <button class="race" data-race="P">President</button>
+    <button class="race" data-race="G">Governor</button>
+    <button class="race" data-race="S">Senate</button>
+    <button class="race" data-race="H">House</button>
+    <hr class="sep">
+    <button id="refresh" disabled>Refresh</button>
+    <button id="autorefresh" disabled>Start Auto</button>
+    <hr class="sep">
+
+    <!-- Step Runner UI -->
+    <div class="row"><b>Step Runner</b></div>
+    <div class="stepbox">
+      <div class="name">Step: <span id="step-name">—</span></div>
+      <div id="step-stat" class="stat muted">Pick a race, then press “Next Step”.</div>
+    </div>
+    <button id="nextstep" disabled>Next Step</button>
+
+    <hr class="sep">
+    <div class="row muted" style="font-size:12px">
+      Server caches upstream.<br/>Tabs read server snapshot.<br/>Switching races reuses cached data.
+    </div>
+  </aside>
+</div>
+
 <script>
-const elTotal = document.getElementById('total');
-const elRpm   = document.getElementById('rpm');
-const elStatus= document.getElementById('status');
-const btn     = document.getElementById('poke');
+/* ---------------------------- geometry & layers ---------------------------- */
+const statesG   = d3.select("#states");
+const countiesG = d3.select("#counties");
+const cdsG      = d3.select("#cds");
 
-const ctx = document.getElementById('rpmChart').getContext('2d');
-const rpmData = { labels: [], datasets: [{ label:'Calls per minute', data:[], borderColor:'#1e90ff', backgroundColor:'rgba(30,144,255,0.2)', fill:true, tension:0.3 }] };
-const rpmChart = new Chart(ctx, { type:'line', data:rpmData, options:{ scales:{ x:{ ticks:{color:'#9fb3d1'}}, y:{beginAtZero:true, ticks:{color:'#9fb3d1'}}}, plugins:{ legend:{labels:{color:'#e9f2ff'}} } } });
+const projection = d3.geoAlbersUsa().translate([480, 300]).scale(1200);
+const path = d3.geoPath().projection(projection);
 
-async function poll(){
-  try{
-    const r = await fetch('/outgoing_count', { cache:'no-store' });
-    if(!r.ok) throw new Error('metrics http '+r.status);
-    const j = await r.json();
-    elTotal.textContent = (j.outgoing_api_calls ?? 0).toLocaleString();
-elRpm.textContent   = '—'; // unless you also add rpm calc server-side
+function showCountyLayer(){ countiesG.style("display", null); cdsG.style("display","none"); }
+function showDistrictLayer(){ countiesG.style("display","none"); cdsG.style("display", null); }
 
-    elStatus.textContent = 'last update: '+new Date().toLocaleTimeString();
+let statesF=[], countiesF=[], cdF=[];
+let fipsToPostal = {};
+let countyKeyToId = new Map();     // "ST:base" -> county FIPS id
+let countyMeta = new Map();         // countyFIPS -> {state, county}
+let districtIdSet = new Set();      // valid district GEOIDs
+let districtMeta = new Map();       // GEOID -> {state, name}
+let districtNumToGeoid = new Map(); // (filled later)
 
-    const nowLabel = new Date().toLocaleTimeString();
-    rpmData.labels.push(nowLabel);
-    rpmData.datasets[0].data.push(j.calls_per_minute ?? 0);
-    rpmChart.update();
-  }catch(err){
-    elStatus.textContent = 'metrics error: '+err.message;
-  }
-}
-setInterval(poll, 1000);
-poll();
+/* ------------------------------ data storage ------------------------------ */
+const raceCountyData = { P:new Map(), G:new Map(), S:new Map() }; // countyFIPS -> {candidates,total}
+const raceDistrictData = { H:new Map() };                         // GEOID -> {candidates,total}
+const fetchedStatesByRace = { P:new Set(), G:new Set(), S:new Set(), H:new Set() };
 
-btn.onclick = async () => {
-  elStatus.textContent = 'sending /api/ping…';
-  try{
-    const r = await fetch('/api/ping', { cache:'no-store' });
-    elStatus.textContent = r.ok ? 'ping ok' : ('ping http '+r.status);
-  }catch(err){
-    elStatus.textContent = 'ping error: '+err.message;
+let currentRace = null; // 'P'|'G'|'S'|'H'
+let autoTimer = null;
+
+/* ---------------------------------- UI ------------------------------------ */
+const q = sel => document.querySelector(sel);
+const raceBtnEls = [...document.querySelectorAll('.race')];
+const hdrRace = q('#h-race');
+const statusEl = q('#status');
+const winnersEl = q('#winners');
+const scopeLabel = q('#scope-label');
+const refreshBtn = q('#refresh');
+const autoBtn = q('#autorefresh');
+const detailsEl = q('#details');
+
+/* Step Runner refs */
+const nextStepBtn = q('#nextstep');
+const stepNameEl  = q('#step-name');
+const stepStatEl  = q('#step-stat');
+
+raceBtnEls.forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    raceBtnEls.forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentRace = btn.dataset.race;
+
+    hdrRace.textContent = labelFor(currentRace);
+    refreshBtn.disabled = false;
+    autoBtn.disabled = false;
+    nextStepBtn.disabled = false;     // enable stepper once a race is picked
+
+    // reset the step pointer on race change
+    stepIndex = 0;
+    stepNameEl.textContent = steps[stepIndex].nameFor(currentRace);
+    stepStatEl.textContent = 'Ready.';
+    stepStatEl.className = 'stat muted';
+
+    if (currentRace==='H'){ showDistrictLayer(); scopeLabel.textContent='(national – districts)'; }
+    else { showCountyLayer(); scopeLabel.textContent='(national – counties)'; }
+
+    paintAll();
+    rebuildWinners();
+    hud.set('race', `${labelFor(currentRace)} — ${describeLayer()}`);
+    hud.set('source', 'Server snapshot (backend caches upstream ~15s)');
+    hud.set('status', 'Ready to fetch / paint');
+    hud.set('progress', { text:'0 / 0', pct:0 });
+    hud.set('sub', 'Use “Next Step” to advance.');
+    setStatus(fetchedStatesByRace[currentRace].size ? 'Showing cached data.' : 'Blank. Click Refresh or use Next Step.');
+  });
+});
+
+refreshBtn.onclick = refreshAllForCurrentRace;
+autoBtn.onclick = ()=>{
+  if (autoTimer){
+    clearInterval(autoTimer); autoTimer=null;
+    autoBtn.textContent='Start Auto';
+    setStatus('Auto refresh off.');
+    hud.set('status','Auto refresh off');
+    hud.set('sub','—');
+  }else{
+    autoTimer = setInterval(refreshAllForCurrentRace, 15000);
+    autoBtn.textContent='Stop Auto';
+    setStatus('Auto refresh on (15s).');
+    hud.set('status','Auto refresh on (every 15s)');
+    hud.set('sub','Will refresh all states on schedule.');
   }
 };
+
+
+/* ------------------------------- load maps -------------------------------- */
+Promise.all([
+  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json"),
+  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json"),
+  d3.json("cb_2024_us_cd119_500k.json") // adjust path if hosted elsewhere
+]).then(([stTopo, ctTopo, cdTopo])=>{
+  const stObj = stTopo.objects.states || stTopo.objects[Object.keys(stTopo.objects)[0]];
+  const ctObj = ctTopo.objects.counties || ctTopo.objects[Object.keys(ctTopo.objects)[0]];
+  const cdObj = cdTopo.objects[Object.keys(cdTopo.objects)[0]];
+
+  statesF   = topojson.feature(stTopo, stObj).features;
+  countiesF = topojson.feature(ctTopo, ctObj).features;
+  cdF       = topojson.feature(cdTopo, cdObj).features;
+
+  const nameToPostal = {
+    "Alabama":"AL","Alaska":"AK","Arizona":"AZ","Arkansas":"AR","California":"CA","Colorado":"CO",
+    "Connecticut":"CT","Delaware":"DE","Florida":"FL","Georgia":"GA","Hawaii":"HI","Idaho":"ID",
+    "Illinois":"IL","Indiana":"IN","Iowa":"IA","Kansas":"KS","Kentucky":"KY","Louisiana":"LA",
+    "Maine":"ME","Maryland":"MD","Massachusetts":"MA","Michigan":"MI","Minnesota":"MN",
+    "Mississippi":"MS","Missouri":"MO","Montana":"MT","Nebraska":"NE","Nevada":"NV",
+    "New Hampshire":"NH","New Jersey":"NJ","New Mexico":"NM","New York":"NY",
+    "North Carolina":"NC","North Dakota":"ND","Ohio":"OH","Oklahoma":"OK","Oregon":"OR",
+    "Pennsylvania":"PA","Rhode Island":"RI","South Carolina":"SC","South Dakota":"SD",
+    "Tennessee":"TN","Texas":"TX","Utah":"UT","Vermont":"VT","Virginia":"VA","Washington":"WA",
+    "West Virginia":"WV","Wisconsin":"WI","Wyoming":"WY","District of Columbia":"DC"
+  };
+  statesF.forEach(s=>{
+    const f2 = String(s.id).padStart(2,"0");
+    fipsToPostal[f2] = nameToPostal[s.properties.name];
+  });
+
+  const SUFFIX_RE = /\s+(city and borough|census area|borough|municipality|parish|county)$/i;
+  function baseName(n){
+    let t = (n||"").toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
+    t = t.replace(/[^\w\s]/g,'').trim();
+    return t.replace(SUFFIX_RE,'');
+  }
+  countiesF.forEach(c=>{
+    const fid = String(c.id).padStart(5,'0');
+    const st = fipsToPostal[fid.slice(0,2)];
+    const display = c.properties.name;
+    countyKeyToId.set(st + ":" + baseName(display), c.id);
+    countyMeta.set(fid, {state:st, county:display});
+  });
+
+  districtIdSet = new Set(cdF.map(f => (f.properties.GEOID||"").trim()));
+  cdF.forEach(f=>{
+    const geoid = String(f.properties.GEOID||"").trim();
+    const st = fipsToPostal[String(f.properties.STATEFP||"").padStart(2,"0")];
+    const name = f.properties.NAMELSAD || `District ${geoid.slice(2)}`;
+    districtMeta.set(geoid, {state:st, name});
+  });
+  districtNumToGeoid = new Map();
+  cdF.forEach(f=>{
+    const stFips = String(f.properties.STATEFP || "").padStart(2,"0");
+    const st = fipsToPostal[stFips];
+    const code2 = String(
+      f.properties.CD119FP || f.properties.CD118FP || f.properties.CDFP || f.properties.CD
+    ).padStart(2,"0");
+    const geoid = String(f.properties.GEOID || "").trim();
+    if (st && code2 && geoid) districtNumToGeoid.set(`${st}-${code2}`, geoid);
+  });
+
+  statesG.selectAll("path").data(statesF).join("path")
+    .attr("d", path).attr("fill","#f7f9ff")
+    .attr("stroke","#b9c6d7").attr("stroke-width",1.1)
+    .attr("vector-effect","non-scaling-stroke");
+
+  countiesG.selectAll("path").data(countiesF).join("path")
+    .attr("class","feature")
+    .attr("d", path).attr("fill","#eee")
+    .attr("stroke","#fff").attr("stroke-width",.5)
+    .attr("vector-effect","non-scaling-stroke")
+    .on("click", (ev,d)=>handleClickCounty(d));
+
+  cdsG.selectAll("path").data(cdF).join("path")
+    .attr("class","feature")
+    .attr("d", path).attr("fill","#eee")
+    .attr("stroke","#fff").attr("stroke-width",.6)
+    .attr("vector-effect","non-scaling-stroke")
+    .on("click", (ev,d)=>handleClickDistrict(d));
+
+  setStatus('Maps loaded. Pick a race to fetch data.');
+});
+
+/* -------------------------- fetch (server snapshot) ------------------------ */
+async function refreshAllForCurrentRace(){
+  if (!currentRace){
+    setStatus('Choose a race first.');
+    return;
+  }
+
+  hud.set('status', 'Refreshing…');
+  hud.set('source', 'Server snapshot (backend caches upstream ~15s)');
+  hud.set('race', `${labelFor(currentRace)} — ${describeLayer()}`);
+  hud.set('sub', 'Fetching all races, one state at a time; repainting after each.');
+
+  const states = Object.values(fipsToPostal);
+  let done = 0;
+  hud.set('progress', { text: `0 / ${states.length}`, pct: 0 });
+
+  for (const st of states){
+    await fetchStateBulk(st, 'P');
+    await fetchStateBulk(st, 'G');
+    await fetchStateBulk(st, 'S');
+    await fetchDistrictBulk(st);
+    done++;
+    hud.set('progress', {
+      text: `${done} / ${states.length}`,
+      pct: Math.round(done/states.length*100)
+    });
+    hud.set('sub', `Last: ${st} (${new Date().toLocaleTimeString()})`);
+  }
+
+  hud.set('status', 'Up to date');
+  hud.set('sub', 'Last paint: ' + new Date().toLocaleTimeString());
+  setStatus('Last update: ' + new Date().toLocaleTimeString());
+  paintAll();
+  rebuildWinners();
+}
+
+async function fetchStateBulk(stateCode, race){
+  const url = `/results_state?state=${stateCode}&office=${race}`;
+  try{
+    const r = await fetch(url, {cache:'no-store'});
+    if (!r.ok) return false;
+    const data = await r.json();
+    if (!data.ok || !data.counties) return false;
+
+    const store = raceCountyData[race];
+    for (const [base, info] of Object.entries(data.counties)){
+      const id = countyKeyToId.get(stateCode + ":" + base);
+      if (!id) continue;
+      const keyId = String(id).padStart(5,'0');
+      const cand = {};
+      (info.candidates||[]).forEach(c=>{
+        const nm = (race==='P') ? (c.name||'').trim().split(' ').pop() : (c.name||'').trim();
+        cand[nm] = { votes:+c.votes||0, party:(c.party||'').toUpperCase() };
+      });
+      const total = Object.values(cand).reduce((s,c)=>s+(c.votes||0),0);
+      store.set(keyId, { candidates:cand, total });
+    }
+    fetchedStatesByRace[race].add(stateCode);
+    return true;
+  }catch(_){ return false; }
+}
+
+// bulk House fetch with key normalization
+async function fetchDistrictBulk(stateCode){
+  const tryUrls = [
+    `/results_districts?state=${stateCode}&office=H`,
+  ];
+  let data = null;
+
+  for (const url of tryUrls){
+    try{
+      const r = await fetch(url, { cache:'no-store' });
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j && j.ok && (j.districts || j.cd)) { data = j; break; }
+    }catch(_){}
+  }
+  if (!data) return false;
+
+  const store = raceDistrictData.H;
+  const src = data.districts || data.cd || {};
+  let accepted = 0;
+
+  for (const [rawKey, info] of Object.entries(src)) {
+    let geoid = String(rawKey).trim();
+
+    if (!districtIdSet.has(geoid)) {
+      const digits = (geoid.match(/\d+/) || [""])[0].padStart(2,"0");
+      const guess = districtNumToGeoid.get(`${stateCode}-${digits}`);
+      if (guess) geoid = guess;
+    }
+
+    if (!districtIdSet.has(geoid)) continue;
+
+    const cand = {};
+    (info.candidates || []).forEach(c=>{
+      const nm = (c.name||'').trim();
+      cand[nm] = { votes:+c.votes||0, party:(c.party||'').toUpperCase() };
+    });
+    const total = Object.values(cand).reduce((s,c)=>s+(c.votes||0),0);
+    store.set(geoid, { candidates:cand, total });
+    accepted++;
+  }
+
+  fetchedStatesByRace.H.add(stateCode);
+  return accepted > 0;
+}
+
+/* ------------------------------ Step Runner ------------------------------- */
+/* Steps: fetch current race → paint → rebuild winners */
+async function fetchAllForCurrentRaceOnly(){
+  if (!currentRace) return false;
+  const states = Object.values(fipsToPostal);
+  let ok = true, done = 0;
+  hud.set('status', 'Step: Fetching current race snapshot…');
+  hud.set('progress', { text:`0 / ${states.length}`, pct:0 });
+
+  for (const st of states){
+    let r = false;
+    if (currentRace === 'H') r = await fetchDistrictBulk(st);
+    else r = await fetchStateBulk(st, currentRace);
+    ok = ok && !!r; // keep track if any failed
+    done++;
+    hud.set('progress', { text:`${done} / ${states.length}`, pct:Math.round(done/states.length*100) });
+  }
+  hud.set('sub', 'Fetch step finished at ' + new Date().toLocaleTimeString());
+  return ok;
+}
+
+const steps = [
+  {
+    nameFor: (r)=>`Fetch data for ${labelFor(r)}`,
+    run: async ()=> await fetchAllForCurrentRaceOnly()
+  },
+  {
+    nameFor: ()=>`Paint map`,
+    run: async ()=> { paintAll(); return true; }
+  },
+  {
+    nameFor: ()=>`Rebuild winners`,
+    run: async ()=> { rebuildWinners(); return true; }
+  }
+];
+
+let stepIndex = 0;
+
+nextStepBtn.onclick = async ()=>{
+  if (!currentRace){
+    setStatus('Choose a race first.');
+    return;
+  }
+  // set UI to busy
+  nextStepBtn.disabled = true;
+  const label = steps[stepIndex].nameFor(currentRace);
+  stepNameEl.textContent = label;
+  stepStatEl.textContent = 'Working…';
+  stepStatEl.className = 'stat muted';
+
+  try{
+    const ok = await steps[stepIndex].run();
+    if (ok){
+      stepStatEl.textContent = 'Completed';
+      stepStatEl.className = 'stat ok';
+    }else{
+      stepStatEl.textContent = 'Completed with issues';
+      stepStatEl.className = 'stat err';
+    }
+  }catch(e){
+    stepStatEl.textContent = 'Failed';
+    stepStatEl.className = 'stat err';
+  }finally{
+    // advance pointer and re-enable
+    stepIndex = (stepIndex + 1) % steps.length;
+    setTimeout(()=>{ // small delay so the user sees the result
+      nextStepBtn.disabled = false;
+      stepNameEl.textContent = steps[stepIndex].nameFor(currentRace);
+    }, 150);
+  }
+};
+
+/* --------------------------------- paint ---------------------------------- */
+function mix(a,b,t){ return Math.round(a+(b-a)*t); }
+function hex(r,g,b){ return "#"+[r,g,b].map(x=>x.toString(16).padStart(2,"0")).join(""); }
+function colourCellDemRep(v){
+  if (!v) return "#eee";
+  let dem=0, gop=0;
+  for (const k in v.candidates){
+    const c=v.candidates[k];
+    if (c.party==="DEM") dem += c.votes||0;
+    else if (c.party==="REP") gop += c.votes||0;
+  }
+  if (dem===0 && gop===0) return "#eee";
+  const pct = dem/(dem+gop);
+  const blue=[0,103,203], red=[236,29,25];
+  const t = Math.abs(pct-0.5)*2;
+  const rgb = pct>=.5
+    ? [mix(red[0],blue[0],t),mix(red[1],blue[1],t),mix(red[2],blue[2],t)]
+    : [mix(blue[0],red[0],t),mix(blue[1],red[1],t),mix(blue[2],red[2],t)];
+  return hex(...rgb);
+}
+
+function paintAll(){
+  countiesG.selectAll("path")
+    .attr("fill", d => {
+      const id = String(d.id).padStart(5,'0');
+      const store = currentRace && currentRace!=='H' ? raceCountyData[currentRace] : null;
+      const cell = store ? store.get(id) : null;
+      return colourCellDemRep(cell);
+    });
+
+  cdsG.selectAll("path")
+    .attr("fill", d => {
+      const geoid = String(d.properties.GEOID||"").trim();
+      const cell = raceDistrictData.H.get(geoid);
+      return colourCellDemRep(cell);
+    });
+
+  const agg = new Map();
+  if (currentRace==='H'){
+    raceDistrictData.H.forEach((v, geoid)=>{
+      const st = String(geoid).slice(0,2);
+      let a = agg.get(st) || {d:0,r:0};
+      for (const k in v.candidates){
+        const c=v.candidates[k];
+        if (c.party==="DEM") a.d += c.votes||0;
+        else if (c.party==="REP") a.r += c.votes||0;
+      }
+      agg.set(st, a);
+    });
+  } else if (currentRace){
+    raceCountyData[currentRace].forEach((v, id)=>{
+      const st = String(id).slice(0,2);
+      let a = agg.get(st) || {d:0,r:0};
+      for (const k in v.candidates){
+        const c=v.candidates[k];
+        if (c.party==="DEM") a.d += c.votes||0;
+        else if (c.party==="REP") a.r += c.votes||0;
+      }
+      agg.set(st, a);
+    });
+  }
+  statesG.selectAll("path").attr("fill", s=>{
+    const a = agg.get(String(s.id).padStart(2,'0'));
+    if (!a) return "#f7f9ff";
+    const v = {candidates:{D:{party:"DEM",votes:a.d},R:{party:"REP",votes:a.r}}};
+    return colourCellDemRep(v);
+  });
+}
+
+/* ------------------------------ winners panel ------------------------------ */
+function rebuildWinners(){
+  winnersEl.innerHTML = "";
+  if (!currentRace){
+    winnersEl.innerHTML = '<div class="row muted">No data yet.</div>'; return;
+  }
+
+  let D=0, R=0, O=0, total=0;
+  if (currentRace==='H'){
+    raceDistrictData.H.forEach(v=>{
+      for (const k in v.candidates){
+        const c=v.candidates[k];
+        if (c.party==="DEM") D += c.votes||0;
+        else if (c.party==="REP") R += c.votes||0;
+        else O += c.votes||0;
+      }
+    });
+  } else {
+    raceCountyData[currentRace].forEach(v=>{
+      for (const k in v.candidates){
+        const c=v.candidates[k];
+        if (c.party==="DEM") D += c.votes||0;
+        else if (c.party==="REP") R += c.votes||0;
+        else O += c.votes||0;
+      }
+    });
+  }
+  total = D+R+O;
+  if (!total){ winnersEl.innerHTML = '<div class="row muted">No data yet.</div>'; return; }
+
+  const rows = [
+    {name:"Democrat", votes:D, cls:"dem"},
+    {name:"Republican", votes:R, cls:"gop"},
+  ];
+  if (O>0) rows.push({name:"Other", votes:O, cls:""});
+
+  rows.sort((a,b)=>b.votes-a.votes);
+  rows.forEach((r,i)=>{
+    const el = document.createElement('div');
+    el.className = 'cand ' + r.cls + (i===0 ? ' leader' : '');
+    el.innerHTML = `
+      <span class="name">${r.name}</span>
+      <span class="votes">${r.votes.toLocaleString()} (${(r.votes/total*100).toFixed(1)}%)</span>`;
+    winnersEl.appendChild(el);
+  });
+}
+
+/* ------------------------------ click details ------------------------------ */
+function handleClickCounty(feature){
+  if (!currentRace || currentRace==='H'){ detailsEl.innerHTML = '<span class="muted">Switch to P/G/S to see county results.</span>'; return; }
+  const id = String(feature.id).padStart(5,'0');
+  const meta = countyMeta.get(id) || {state:'', county:'(unknown)'};
+  const cell = raceCountyData[currentRace].get(id);
+
+  if (!cell){
+    detailsEl.innerHTML = `<div><span class="k">${meta.county}, ${meta.state}</span> <span class="pill">${labelFor(currentRace)}</span><div class="muted">No data in cache yet.</div></div>`;
+    return;
+  }
+  showCellDetails(`${meta.county}, ${meta.state}`, cell, labelFor(currentRace));
+}
+
+function handleClickDistrict(feature){
+  if (currentRace!=='H'){ detailsEl.innerHTML = '<span class="muted">Switch to House to see district results.</span>'; return; }
+  const geoid = String(feature.properties.GEOID||"").trim();
+  const meta = districtMeta.get(geoid) || {state:'', name:`District ${geoid.slice(2)}`};
+  const cell = raceDistrictData.H.get(geoid);
+
+  if (!cell){
+    detailsEl.innerHTML = `<div><span class="k">${meta.name}, ${meta.state}</span> <span class="pill">House</span><div class="muted">No data in cache yet.</div></div>`;
+    return;
+  }
+  showCellDetails(`${meta.name}, ${meta.state}`, cell, 'House');
+}
+
+function showCellDetails(title, cell, raceLabel){
+  const rows = Object.entries(cell.candidates||{})
+    .map(([name,obj])=>({name,party:obj.party||'',votes:+obj.votes||0}))
+    .sort((a,b)=>b.votes-a.votes);
+  const total = rows.reduce((s,r)=>s+r.votes,0) || 1;
+
+  let html = `<div><span class="k">${title}</span> <span class="pill">${raceLabel}</span></div>`;
+  html += `<div class="muted" style="margin:.2rem 0 .4rem">Total votes: ${total.toLocaleString()}</div>`;
+  rows.forEach(r=>{
+    const tag = r.party==='DEM'?'(D)':r.party==='REP'?'(R)':r.party?`(${r.party})`:'';
+    html += `<div class="cand ${r.party==='DEM'?'dem':r.party==='REP'?'gop':''}">
+      <span class="name">${r.name} ${tag}</span>
+      <span>${r.votes.toLocaleString()} (${(r.votes/total*100).toFixed(1)}%)</span>
+    </div>`;
+  });
+  detailsEl.innerHTML = html;
+}
+
+/* --------------------------------- helpers -------------------------------- */
+function labelFor(r){ return r==='P'?'President':r==='G'?'Governor':r==='S'?'Senate':'House'; }
+function setStatus(msg){ statusEl.textContent = msg; }
+/* ------------------------------- HUD helpers ------------------------------- */
+const hud = {
+  el: document.getElementById('hud'),
+  progEl: document.getElementById('hud-progress'),
+  barEl: document.getElementById('hud-bar'),
+  subEl: document.getElementById('hud-sub'),
+  set(k, v){
+    const map = { status: 0, race: 1, source: 2, progress: 3, sub: 5 };
+    const rows = this.el.querySelectorAll('.row');
+    if (k === 'status') rows[0].innerHTML = `<span class="dot"></span><b>Status:</b> ${v}`;
+    if (k === 'race')   rows[1].innerHTML = `<b>Race:</b> ${v}`;
+    if (k === 'source') rows[2].innerHTML = `<b>Source:</b> ${v}`;
+    if (k === 'progress'){
+      this.progEl.textContent = v.text;
+      this.barEl.style.width = v.pct + '%';
+    }
+    if (k === 'sub') this.subEl.textContent = v;
+  }
+};
+
+function describeLayer(){
+  return (currentRace === 'H') ? 'districts (House)' : 'counties (' + labelFor(currentRace) + ')';
+}
 </script>
 </body>
 </html>
