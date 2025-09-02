@@ -3,20 +3,18 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Presidential Race — Hub & Map</title>
+<title>Hub & Spoke — Presidential Counties</title>
 <script src="https://d3js.org/d3.v6.min.js"></script>
 <script src="https://d3js.org/topojson.v3.min.js"></script>
 <style>
-  :root {
-    --bg:#0b1220; --fg:#eaf0ff; --muted:#9fb3d1; --card:#14233d; --ok:#a5f3a5; --warn:#ffd79a;
-  }
+  :root { --bg:#0b1220; --fg:#eaf0ff; --muted:#9fb3d1; --card:#14233d; --ok:#a5f3a5; --warn:#ffd79a; }
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
   header{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.12);background:#0e1730;font-weight:700}
   .wrap{display:grid;grid-template-columns:1fr 400px;gap:14px;height:calc(100% - 48px)}
   svg{width:100%;height:100%;background:#111}
   .panel{background:var(--card);border:1px solid rgba(255,255,255,.14);border-radius:14px;display:flex;flex-direction:column;min-height:0}
   .panel h2{margin:0;padding:10px 12px;font-size:14px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08)}
-  .controls{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;gap:8px;align-items:center}
+  .controls{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   button{background:#1f2d50;color:var(--fg);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:6px 9px;cursor:pointer}
   button:hover{background:#213360}
   .badge{background:#17274a;padding:2px 8px;border-radius:999px;font-size:11px}
@@ -25,10 +23,13 @@
   .ok{color:var(--ok)} .warn{color:var(--warn)}
   .cand{font-family:ui-monospace,monospace;font-size:13px;margin:2px 0}
   .highlight{stroke:#fff;stroke-width:1.2px}
+  .kv{font:12px ui-monospace,monospace}
 </style>
 </head>
 <body>
-  <header>Presidential Race — Counties <span id="statusMeta" style="font-weight:normal;margin-left:8px">loading…</span></header>
+  <header>Hub & Spoke — Presidential Counties
+    <span id="statusMeta" style="font-weight:normal;margin-left:8px">loading…</span>
+  </header>
   <div class="wrap">
     <svg id="map"></svg>
     <aside class="panel">
@@ -36,9 +37,12 @@
       <div class="controls">
         <button id="refreshBtn">Refresh</button>
         <button id="nudgeBtn">Nudge Hub</button>
+        <a id="metricsLink" class="badge" target="_blank" href="/metrics">metrics</a>
         <span class="badge" id="hubBadge">hub?</span>
       </div>
       <div class="body" id="sidebar">
+        <div class="kv">Upstream calls: <span id="calls">…</span></div>
+        <div class="kv">Errors: <span id="errs">…</span></div>
         <h3>Click a county</h3>
         <div id="countyInfo"></div>
         <hr/>
@@ -53,16 +57,21 @@ const countyInfo = document.getElementById("countyInfo");
 const logBody = document.getElementById("logBody");
 const statusMeta = document.getElementById("statusMeta");
 const hubBadge = document.getElementById("hubBadge");
+const callsEl = document.getElementById("calls");
+const errsEl = document.getElementById("errs");
 
 let projection, path, countyShapes, countyData={};
 let lastLogSeq = 0;
 
-// Load topojson
+// Load topojson from CDN (no server assets needed)
 Promise.all([
   d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json"),
   d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json")
 ]).then(([stTopo, ctTopo])=>{
-  projection = d3.geoAlbersUsa().scale(1280).translate([480,300]);
+  // Fit to viewport heuristically
+  const w = document.querySelector(".wrap").clientWidth - 420;
+  const h = document.querySelector(".wrap").clientHeight;
+  projection = d3.geoAlbersUsa().translate([w/2, h/2]).scale(Math.min(w,h)*1.25);
   path = d3.geoPath().projection(projection);
 
   countyShapes = topojson.feature(ctTopo, ctTopo.objects.counties).features;
@@ -88,14 +97,17 @@ async function fetchJSON(url){
 }
 
 async function fetchAll(){
-  // health
+  // health & metrics
   const h=await fetchJSON("/health");
   if(h){
     statusMeta.textContent=`hub=${h.hub_mode?'on':'off'} • states=${h.states_cached} • counties=${h.counties_total}`;
     hubBadge.textContent=h.hub_mode?'hub on':'hub off';
+    if(h.stats){ callsEl.textContent=h.stats.upstream_calls; errsEl.textContent=h.stats.errors; }
   }
+  const m=await fetchJSON("/metrics");
+  if(m && typeof m.upstream_calls==="number"){ callsEl.textContent=m.upstream_calls; errsEl.textContent=m.errors; }
 
-  // county data
+  // county data (flattened)
   const d=await fetchJSON("/cache/p");
   if(d && d.rows){
     d.rows.forEach(r=>{countyData[r.fips]=r;});
@@ -113,7 +125,7 @@ async function fetchAll(){
       });
   }
 
-  // log
+  // append-only log
   const lg=await fetchJSON(`/log?since=${lastLogSeq}`);
   if(lg && lg.items){
     lg.items.forEach(it=>{
@@ -146,10 +158,13 @@ function showCounty(event,d){
 
 // buttons
 document.getElementById("refreshBtn").onclick=()=>fetchAll();
-document.getElementById("nudgeBtn").onclick=async()=>{await fetchJSON("/force_cycle?n=50");fetchAll();};
+document.getElementById("nudgeBtn").onclick=async()=>{
+  const r = await fetchJSON("/force_cycle?n=50");
+  if(r && r.ok){ fetchAll(); }
+};
 
-// poll every 10s
-setInterval(fetchAll,10000);
+// poll every 10s; this will not increase upstream calls because server is hub-cached
+setInterval(fetchAll,100);
 </script>
 </body>
 </html>

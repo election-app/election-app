@@ -1,39 +1,48 @@
-# app.py — Hub & Spokes cache for Presidential counties (slow-by-default)
-# - One background "hub" thread (opt-in via HUB_MODE=1) polls upstream very slowly
-# - All HTTP "spokes" serve cached JSON; multiple tabs won't multiply upstream calls
+# app.py — Hub & Spokes cache (true hub-only polling; tabs never hit upstream)
+# - One background "hub" thread (HUB_MODE=1) polls upstream slowly and writes to an in-memory cache.
+# - All HTTP requests from browsers are "spokes" that read ONLY from the cache; they never call upstream.
+# - Multiple tabs/browsers will NOT increase upstream calls.
 #
-# Speed levers (safe defaults for Render free tier):
-#   HUB_MODE                = os.environ.get("HUB_MODE","1")   # "1" = poller on, "0" = serve-only
-#   MAX_CONCURRENCY         = int(os.getenv("MAX_CONCURRENCY","1"))
-#   STATES_PER_CYCLE        = int(os.getenv("STATES_PER_CYCLE","4"))
-#   DELAY_BETWEEN_REQUESTS  = float(os.getenv("DELAY_BETWEEN_REQUESTS","6.0"))   # seconds
-#   DELAY_BETWEEN_CYCLES    = float(os.getenv("DELAY_BETWEEN_CYCLES","20.0"))    # seconds
-#   TIMEOUT_SECONDS         = float(os.getenv("TIMEOUT_SECONDS","15.0"))
-#   CACHE_SNAPSHOT_PATH     = os.getenv("CACHE_SNAPSHOT_PATH","/tmp/p_cache.json")
+# Tunables (environment variables):
+#   HUB_MODE="1"                  # "1" to enable hub poller, "0" to serve-only
+#   MAX_CONCURRENCY=1             # number of parallel upstream fetch workers (careful on free tiers)
+#   STATES_PER_CYCLE=4            # states per batch
+#   DELAY_BETWEEN_REQUESTS=6.0    # seconds between worker fetches
+#   DELAY_BETWEEN_CYCLES=20.0     # seconds between batches
+#   TIMEOUT_SECONDS=15.0          # upstream HTTP timeout
+#   CACHE_SNAPSHOT_PATH="/tmp/p_cache.json"
+#   MIN_STATE_REFRESH_SEC=900     # do not re-fetch same state more often than this (guard vs. thrash)
+#   FORCE_CYCLE_COOLDOWN_SEC=20   # server-wide cooldown for /force_cycle
 #
-# Scale up later by raising STATES_PER_CYCLE, lowering the delays, and (carefully) bumping MAX_CONCURRENCY.
+# Upstream contract (AP-style XML mocked by your middle layer):
+#   GET {BASE_URL}/{ELECTION_DATE}?statepostal=XX&raceTypeId=G&raceId=0&level=ru&officeId=P
+#
+# Notes:
+# - /force_cycle is throttled on the server; it schedules server-side fetches but never exposes direct upstream.
+# - /metrics and /log help you prove that opening more tabs does not raise upstream call count.
 
 import os, time, json, threading, itertools, queue
 from collections import deque
 from datetime import datetime
-from flask import Flask, send_from_directory, jsonify, Response, request
+from flask import Flask, send_from_directory, jsonify, request
 import requests
 import xml.etree.ElementTree as ET
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
 # --------------------------- Tunables --------------------------- #
-BASE_URL      = "https://api2-app2.onrender.com/v2/elections"  # upstream base
+BASE_URL      = os.getenv("BASE_URL", "https://api2-app2.onrender.com/v2/elections")
 ELECTION_DATE = os.getenv("ELECTION_DATE", "2024-11-05")
 HUB_MODE      = os.getenv("HUB_MODE", "1") in ("1","true","True","YES","yes")
 
-MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "1"))     # keep 1 on free tier
-STATES_PER_CYCLE       = int(os.getenv("STATES_PER_CYCLE", "4"))     # how many states per mini-cycle
-DELAY_BETWEEN_REQUESTS = float(os.getenv("DELAY_BETWEEN_REQUESTS","6.0"))
-DELAY_BETWEEN_CYCLES   = float(os.getenv("DELAY_BETWEEN_CYCLES","20.0"))
+MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "10"))
+STATES_PER_CYCLE       = int(os.getenv("STATES_PER_CYCLE", "10"))
+DELAY_BETWEEN_REQUESTS = float(os.getenv("DELAY_BETWEEN_REQUESTS",".1"))
+DELAY_BETWEEN_CYCLES   = float(os.getenv("DELAY_BETWEEN_CYCLES",".1"))
 TIMEOUT_SECONDS        = float(os.getenv("TIMEOUT_SECONDS","15.0"))
-
 CACHE_SNAPSHOT_PATH    = os.getenv("CACHE_SNAPSHOT_PATH","/tmp/p_cache.json")
+MIN_STATE_REFRESH_SEC  = float(os.getenv("MIN_STATE_REFRESH_SEC","1"))
+FORCE_CYCLE_COOLDOWN_SEC = float(os.getenv("FORCE_CYCLE_COOLDOWN_SEC","2"))
 
 # USPS states + DC + PR
 ALL_STATES = [
@@ -42,15 +51,23 @@ ALL_STATES = [
     "OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VA","VT","WA","WI","WV","WY","DC","PR"
 ]
 
-# --------------------------- Cache ------------------------------ #
+# --------------------------- Cache & Stats ---------------------- #
 _cache_lock = threading.Lock()
 _log_seq = 0
 _cache = {
-    "p_by_state": {},       # { "CA": { "updated": ts, "counties": { "06037": {...}, ... }}, ... }
-    "states_seen": set(),   # track coverage
+    "p_by_state": {},         # "CA": {"updated": ts, "counties": {...}}
+    "states_seen": set(),
     "last_cycle_end": 0.0,
-    "log": deque(maxlen=2000)  # [{seq, ts, lvl, msg}]
+    "log": deque(maxlen=4000),
 }
+_stats = {
+    "upstream_calls": 0,
+    "upstream_bytes": 0,
+    "errors": 0,
+    "per_state": {},          # "CA": {"last_fetch": ts, "ok": n, "err": n}
+}
+_inflight = set()             # states currently being fetched (guard for concurrency)
+_last_force_cycle = 0.0
 
 def _now_iso():
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -68,10 +85,11 @@ def snapshot_save():
                 "p_by_state": _cache["p_by_state"],
                 "states_seen": list(_cache["states_seen"]),
                 "last_cycle_end": _cache["last_cycle_end"],
+                "_stats": _stats,
             }
         with open(CACHE_SNAPSHOT_PATH, "w") as f:
             json.dump(data, f)
-        log(f"Saved cache snapshot to {CACHE_SNAPSHOT_PATH}")
+        log(f"Saved snapshot to {CACHE_SNAPSHOT_PATH}")
     except Exception as e:
         log(f"Snapshot save error: {e}", "WARN")
 
@@ -84,16 +102,14 @@ def snapshot_load():
                 _cache["p_by_state"]  = data.get("p_by_state", {})
                 _cache["states_seen"] = set(data.get("states_seen", []))
                 _cache["last_cycle_end"] = data.get("last_cycle_end", 0.0)
-            log(f"Loaded cache snapshot from {CACHE_SNAPSHOT_PATH}")
+                _s = data.get("_stats", {})
+                _stats.update(_s)
+            log(f"Loaded snapshot from {CACHE_SNAPSHOT_PATH}")
     except Exception as e:
         log(f"Snapshot load error: {e}", "WARN")
 
 # ---------------------- XML -> JSON parsing --------------------- #
 def parse_president_counties(xml_text, usps):
-    """
-    Convert <ElectionResults><ReportingUnit ... FIPS=""><Candidate .../></ReportingUnit>* into
-    { "counties": { fips: { "state": usps, "fips": fips, "name": Name, "candidates":[...], "total": int }}, "office":"P" }
-    """
     out = {"office": "P", "state": usps, "counties": {}}
     try:
         root = ET.fromstring(xml_text)
@@ -103,8 +119,7 @@ def parse_president_counties(xml_text, usps):
     for ru in root.findall(".//ReportingUnit"):
         fips = (ru.attrib.get("FIPS") or "").zfill(5)
         name = ru.attrib.get("Name") or "Unknown"
-        cands = []
-        total = 0
+        cands, total = [], 0
         for c in ru.findall("./Candidate"):
             first = c.attrib.get("First","").strip()
             last  = c.attrib.get("Last","").strip()
@@ -117,27 +132,65 @@ def parse_president_counties(xml_text, usps):
             full = (first + " " + last).strip()
             cands.append({"name": full, "party": party, "votes": votes})
         out["counties"][fips] = {
-            "state": usps,
-            "fips": fips,
-            "name": name,
-            "candidates": cands,
-            "total": total
+            "state": usps, "fips": fips, "name": name,
+            "candidates": cands, "total": total
         }
     return out
 
 # ---------------------- Upstream fetcher ------------------------ #
 def build_url(usps: str) -> str:
-    # /v2/elections/{date}?statepostal=XX&raceTypeId=G&raceId=0&level=ru&officeId=P
     return f"{BASE_URL}/{ELECTION_DATE}?statepostal={usps}&raceTypeId=G&raceId=0&level=ru&officeId=P"
 
+def should_refetch(usps: str) -> bool:
+    with _cache_lock:
+        last = _stats["per_state"].get(usps, {}).get("last_fetch", 0.0)
+    return (time.time() - last) >= MIN_STATE_REFRESH_SEC
+
 def fetch_state(usps: str):
-    url = build_url(usps)
-    t0 = time.time()
+    # Guard: do not duplicate work and avoid too-frequent refresh of same state
+    with _cache_lock:
+        if usps in _inflight:
+            return False
+        _inflight.add(usps)
     try:
-        r = requests.get(url, timeout=TIMEOUT_SECONDS)
+        if not should_refetch(usps):
+            log(f"Skip {usps}: within refresh window ({int(MIN_STATE_REFRESH_SEC)}s)", "INFO")
+            return True
+
+        url = build_url(usps)
+        t0 = time.time()
+        try:
+            r = requests.get(url, timeout=TIMEOUT_SECONDS)
+            sz = len(r.content or b"")
+            with _cache_lock:
+                _stats["upstream_calls"] += 1
+                _stats["upstream_bytes"] += sz
+        except Exception as e:
+            with _cache_lock:
+                _stats["errors"] += 1
+                _stats["per_state"].setdefault(usps, {}).setdefault("err", 0)
+                _stats["per_state"][usps]["err"] += 1
+            log(f"Fetch transport error {usps}: {e}", "WARN")
+            return False
+
         if r.status_code != 200:
-            raise RuntimeError(f"HTTP {r.status_code}")
-        parsed = parse_president_counties(r.text, usps)
+            with _cache_lock:
+                _stats["errors"] += 1
+                _stats["per_state"].setdefault(usps, {}).setdefault("err", 0)
+                _stats["per_state"][usps]["err"] += 1
+            log(f"HTTP {r.status_code} for {usps}", "WARN")
+            return False
+
+        try:
+            parsed = parse_president_counties(r.text, usps)
+        except Exception as e:
+            with _cache_lock:
+                _stats["errors"] += 1
+                _stats["per_state"].setdefault(usps, {}).setdefault("err", 0)
+                _stats["per_state"][usps]["err"] += 1
+            log(f"Parse error {usps}: {e}", "WARN")
+            return False
+
         with _cache_lock:
             _cache["p_by_state"][usps] = {
                 "updated": time.time(),
@@ -145,31 +198,36 @@ def fetch_state(usps: str):
                 "counties": parsed["counties"]
             }
             _cache["states_seen"].add(usps)
+            ps = _stats["per_state"].setdefault(usps, {})
+            ps["last_fetch"] = time.time()
+            ps["ok"] = ps.get("ok", 0) + 1
+
         dt = time.time() - t0
         log(f"Fetched {usps}: {len(parsed['counties'])} counties in {dt:.1f}s")
         return True
-    except Exception as e:
-        log(f"Fetch error {usps}: {e}", "WARN")
-        return False
+    finally:
+        with _cache_lock:
+            _inflight.discard(usps)
 
 def hub_loop():
     log("Hub poller starting..." if HUB_MODE else "Hub disabled (serve-only).")
     if not HUB_MODE:
         return
     snapshot_load()
-    # Round-robin through states slowly
     rr = itertools.cycle(ALL_STATES)
-    # Simple worker queue for optional >1 concurrency
     q = queue.Queue()
 
     def worker():
         while True:
             usps = q.get()
             if usps is None:
+                q.task_done()
                 return
-            fetch_state(usps)
-            time.sleep(DELAY_BETWEEN_REQUESTS)
-            q.task_done()
+            try:
+                fetch_state(usps)
+            finally:
+                q.task_done()
+                time.sleep(DELAY_BETWEEN_REQUESTS)
 
     workers = []
     for _ in range(max(1, MAX_CONCURRENCY)):
@@ -182,7 +240,7 @@ def hub_loop():
         log(f"Cycle start: {batch}")
         for s in batch:
             q.put(s)
-        q.join()  # wait batch
+        q.join()
         with _cache_lock:
             _cache["last_cycle_end"] = time.time()
         snapshot_save()
@@ -199,7 +257,6 @@ def no_store(resp):
 
 @app.route("/")
 def root():
-    # serve index.html from the same directory
     return send_from_directory(app.static_folder, "index.html")
 
 @app.route("/health")
@@ -208,6 +265,7 @@ def health():
         states_cached = len(_cache["p_by_state"])
         counties_total = sum(len(v["counties"]) for v in _cache["p_by_state"].values())
         last_cycle_end = _cache["last_cycle_end"]
+        stats_copy = json.loads(json.dumps(_stats))
     return jsonify({
         "hub_mode": HUB_MODE,
         "states_cached": states_cached,
@@ -218,13 +276,28 @@ def health():
             "STATES_PER_CYCLE": STATES_PER_CYCLE,
             "DELAY_BETWEEN_REQUESTS": DELAY_BETWEEN_REQUESTS,
             "DELAY_BETWEEN_CYCLES": DELAY_BETWEEN_CYCLES,
-            "TIMEOUT_SECONDS": TIMEOUT_SECONDS
-        }
+            "TIMEOUT_SECONDS": TIMEOUT_SECONDS,
+            "MIN_STATE_REFRESH_SEC": MIN_STATE_REFRESH_SEC
+        },
+        "stats": stats_copy
+    })
+
+@app.route("/metrics")
+def metrics():
+    with _cache_lock:
+        per_state = _stats["per_state"].copy()
+        upstream_calls = _stats["upstream_calls"]
+        upstream_bytes = _stats["upstream_bytes"]
+        errors = _stats["errors"]
+    return jsonify({
+        "upstream_calls": upstream_calls,
+        "upstream_megabytes": round(upstream_bytes/1024/1024,3),
+        "errors": errors,
+        "per_state": per_state
     })
 
 @app.route("/log")
 def get_log():
-    """Return logs optionally after a given seq (for append-only UI)."""
     try:
         since = int(request.args.get("since", "0"))
     except ValueError:
@@ -236,7 +309,6 @@ def get_log():
 
 @app.route("/cache/p")
 def cache_p():
-    """Flattened presidential county list across all cached states (sorted)."""
     with _cache_lock:
         rows = []
         for usps, blob in _cache["p_by_state"].items():
@@ -249,16 +321,30 @@ def cache_p():
                     "total": c["total"],
                     "updated": blob["updated"]
                 })
-    # sort by state then numeric FIPS
     rows.sort(key=lambda r: (r["state"], int(r["fips"])))
     return jsonify({"office": "P", "rows": rows})
 
+@app.route("/cache/state")
+def cache_state():
+    usps = (request.args.get("state") or "").upper().strip()
+    if not usps:
+        return jsonify({"ok": False, "msg": "missing state"}), 400
+    with _cache_lock:
+        blob = _cache["p_by_state"].get(usps)
+    if not blob:
+        return jsonify({"ok": True, "state": usps, "counties": {}, "updated": None})
+    return jsonify({"ok": True, "state": usps, "counties": blob["counties"], "updated": blob["updated"]})
+
 @app.route("/force_cycle")
 def force_cycle():
-    """Optional manual nudge: enqueue a quick small cycle (safe on free tier)."""
     if not HUB_MODE:
         return jsonify({"ok": False, "msg": "Hub disabled"}), 400
-    # Queue up a tiny pass of 2 states right now
+    global _last_force_cycle
+    now = time.time()
+    if now - _last_force_cycle < FORCE_CYCLE_COOLDOWN_SEC:
+        return jsonify({"ok": False, "msg": "cooldown"}), 429
+    _last_force_cycle = now
+
     want = request.args.get("n") or 2
     try:
         want = int(want)
@@ -268,7 +354,6 @@ def force_cycle():
         want = 2
     picks = ALL_STATES[:want]
     log(f"Force-cycle requested for {picks}")
-    # spawn a short-lived thread so we return immediately
     def _force():
         for s in picks:
             fetch_state(s)
@@ -277,7 +362,6 @@ def force_cycle():
     return jsonify({"ok": True, "scheduled": picks})
 
 if __name__ == "__main__":
-    # start hub thread
     threading.Thread(target=hub_loop, daemon=True).start()
     port = int(os.getenv("PORT","5022"))
     app.run(host="0.0.0.0", port=port)
