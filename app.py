@@ -1,67 +1,64 @@
-# app.py – production version with bulletproof log collector (soft-error responses)
+# app.py — "slow & gentle" edition with clear throttling levers
+# Compatible with your existing index.html and endpoints.
+#
+# TUNABLE LEVERS (safe to change):
+#   POLL_INTERVAL_SEC       — how often the background poll wakes up
+#   STATES_PER_TICK         — how many states to poll per wake
+#   MAX_WORKERS             — parallel upstream requests (keep tiny)
+#   PER_REQUEST_DELAY_MS    — pause between each upstream request
+#   REQUEST_TIMEOUT_SEC     — upstream request timeout
+#   CACHE_TTL_SEC           — how long parsed snapshots are considered fresh
+#   SLOW_ENDPOINT_MS        — artificial delay added to *every* API response
+#   ENABLE_POLLING          — flip to False to disable background poller
+
 from flask import Flask, send_from_directory, request, jsonify
-import requests, xml.etree.ElementTree as ET, time, re, threading, sys, json
+import requests, xml.etree.ElementTree as ET
+import time, re, threading, sys, json, random
 import unicodedata, os
+import concurrent.futures
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
-API_KEY       = "4uwfiazjez9koo7aju9ig4zxhr"
-BASE_URL      = "https://api2-app2.onrender.com/v2/elections"
-ELECTION_DATE = "2024-11-05"
-POLL_INTERVAL = 120  # seconds
+# ----------------------------- EASY THROTTLE LEVERS -----------------------------
+API_KEY               = os.getenv("ELECTIONS_API_KEY", "4uwfiazjez9koo7aju9ig4zxhr")
+BASE_URL              = "https://api2-app2.onrender.com/v2/elections"
+DISTRICTS_BASE        = "https://api2-app2.onrender.com/v2/districts"
+ELECTION_DATE         = "2024-11-05"
 
-_cache = {"states": {}, "districts": {}}
-_cache_lock = threading.Lock()
+ENABLE_POLLING        = True          # set False to fully stop background poller
+POLL_INTERVAL_SEC     = 30            # wakeup cadence (e.g., every 30s)
+STATES_PER_TICK       = 2             # how many states to poll each wake
+MAX_WORKERS           = 1             # parallel upstream calls (keep small on free tier)
+PER_REQUEST_DELAY_MS  = 350           # pause between *each* upstream hit
+REQUEST_TIMEOUT_SEC   = 6             # upstream timeout
+CACHE_TTL_SEC         = 30            # how long parsed snapshots are "fresh"
+SLOW_ENDPOINT_MS      = 150           # add artificial delay to *all* responses (0 to disable)
 
-import concurrent.futures
+# Optional jitter so traffic isn't bursty (set to 0 to disable)
+JITTER_MS_LO, JITTER_MS_HI = 25, 125
 
+# --------------------------------------------------------------------------------
+
+# Round-robin list of states (includes DC)
 ALL_STATES = [
     "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","IA","ID","IL","IN","KS","KY",
     "LA","MA","MD","ME","MI","MN","MO","MS","MT","NC","ND","NE","NH","NJ","NM","NV","NY",
-    "OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VA","VT","WA","WI","WV","WY"
+    "OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VA","VT","WA","WI","WV","WY","DC"
 ]
 
-def fetch_one(url, cache_key, cache_bucket):
-    try:
-        r = requests.get(url, headers={"x-api-key": API_KEY}, timeout=10)
-        if r.ok:
-            with _cache_lock:
-                _cache[cache_bucket][cache_key] = {"payload": r.text, "ts": time.time()}
-    except Exception as e:
-        print("Poll error:", e)
+# Raw XML snapshots (from background poller)
+_raw_cache = {
+    "states":    {},  # key: (state, office) -> {payload:str, ts:float}
+    "districts": {}   # key: (state,)       -> {payload:str, ts:float}
+}
+_raw_lock = threading.Lock()
 
-def poll_api():
-    while True:
-        start = time.time()
-        tasks = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            for state in ALL_STATES:
-                # P, S, G
-                for office in ["P","S","G"]:
-                    url = f"{BASE_URL}/{ELECTION_DATE}?statepostal={state}&officeId={office}&level=ru"
-                    tasks.append(pool.submit(fetch_one, url, (state, office), "states"))
-                # House
-                url = f"{BASE_URL}/{ELECTION_DATE}".replace("/v2/elections", "/v2/districts")
-                url = f"{url}?statepostal={state}&officeId=H&level=ru"
-                tasks.append(pool.submit(fetch_one, url, (state,), "districts"))
-            concurrent.futures.wait(tasks)
-        elapsed = time.time() - start
-        time.sleep(max(0, POLL_INTERVAL - elapsed))
+# Parsed per-state cache that endpoints serve
+_parsed_cache = {}  # key: (state, office) -> (ts, dict)
+_inflight_evt  = {} # key: (state, office) -> threading.Event
+_cache_lock    = threading.Lock()
 
-threading.Thread(target=poll_api, daemon=True).start()
-
-
-
-@app.after_request
-def add_no_store(resp):
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
-    return resp
-
-# --------------------------------------------------------------------------- #
-# Small helpers
-# --------------------------------------------------------------------------- #
+# ----------------------------- Helper utilities -----------------------------
 def _normalize(txt: str) -> str:
     txt = (txt or "").strip().lower()
     txt = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode("ascii")
@@ -75,76 +72,101 @@ _SUFFIX_RE = re.compile(
 def _base_name(n: str) -> str:
     return _SUFFIX_RE.sub("", _normalize(n))
 
-def _cmp_key(n: str) -> str:
-    return re.sub(r"\s+", "", _base_name(n))
-
 def _safe_int(raw_vote: str) -> int:
     try:
         return int(re.sub(r"[^\d]", "", raw_vote or "0"))
     except ValueError:
         return 0
 
-# --------------------------------------------------------------------------- #
-# Caches + single-flight dedupe
-# --------------------------------------------------------------------------- #
-# Raw XML cache (as before) – caps upstream calls to at most once per (state,office,TTL)
-_state_cache: dict[tuple[str,str], tuple[float,str]] = {}
-# Parsed JSON snapshot cache – what the browsers will read
-_parsed_cache: dict[tuple[str,str], tuple[float,dict]] = {}
-# In-flight guards so concurrent requests don’t double-hit upstream for same key
-_inflight: dict[tuple[str,str], threading.Event] = {}
+def _sleep_ms(ms: int):
+    # adds tiny jitter so bursts don't align perfectly
+    if ms <= 0:
+        return
+    j = random.randint(JITTER_MS_LO, JITTER_MS_HI) if (JITTER_MS_HI > 0) else 0
+    time.sleep((ms + j) / 1000.0)
 
-_CACHE_TTL = 15  # seconds; tune as you like
-_cache_lock = threading.Lock()
+# ----------------------------- Poller (very slow) -----------------------------
+def _fetch_upstream(url: str) -> str | None:
+    try:
+        r = requests.get(url, headers={"x-api-key": API_KEY}, timeout=REQUEST_TIMEOUT_SEC)
+        if r.ok:
+            return r.text
+        else:
+            sys.stdout.write(f"[POLL] non-200 {r.status_code} for {url}\n")
+            sys.stdout.flush()
+            return None
+    except Exception as e:
+        sys.stdout.write(f"[POLL] error {e} for {url}\n")
+        sys.stdout.flush()
+        return None
 
-def _fetch_state_xml(state_code: str, office: str = "P") -> str:
-    """Fetch raw XML once per TTL; retries/backoff included."""
-    office = (office or "P").upper()
-    now = time.time()
-    key = (state_code, office)
+def _poll_one_state(state: str):
+    # Hit P, S, G one by one (with delays), then districts
+    offices = ["P","S","G"]
+    for office in offices:
+        url = f"{BASE_URL}/{ELECTION_DATE}?statepostal={state}&officeId={office}&level=ru"
+        xml = _fetch_upstream(url)
+        if xml:
+            with _raw_lock:
+                _raw_cache["states"][(state, office)] = {"payload": xml, "ts": time.time()}
+        _sleep_ms(PER_REQUEST_DELAY_MS)
 
-    with _cache_lock:
-        ts_xml = _state_cache.get(key)
-        if ts_xml and now - ts_xml[0] < _CACHE_TTL:
-            return ts_xml[1]
+    # districts
+    url = f"{DISTRICTS_BASE}/{ELECTION_DATE}?statepostal={state}&officeId=H&level=ru"
+    xml = _fetch_upstream(url)
+    if xml:
+        with _raw_lock:
+            _raw_cache["districts"][(state,)] = {"payload": xml, "ts": time.time()}
+    _sleep_ms(PER_REQUEST_DELAY_MS)
 
-    url     = f"{BASE_URL}/{ELECTION_DATE}?statepostal={state_code}&raceTypeId=G&raceId=0&level=ru&officeId={office}"
-    headers = {"x-api-key": API_KEY}
+def poller_loop():
+    idx = 0
+    n = len(ALL_STATES)
+    while True:
+        tick_start = time.time()
 
-    back_off = 0.5
-    for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=headers, timeout=6)
-        except Exception as err:
-            if attempt < 2:
-                time.sleep(back_off * (2 ** attempt))
-                continue
-            raise RuntimeError("network-error") from err
-
-        if resp.status_code == 200:
-            xml_blob = resp.text
-            with _cache_lock:
-                _state_cache[key] = (now, xml_blob)
-            return xml_blob
-
-        if resp.status_code in (403, 404, 429, 500, 502, 503) and attempt < 2:
-            time.sleep(back_off * (2 ** attempt))
+        if not ENABLE_POLLING:
+            _sleep_ms(int(POLL_INTERVAL_SEC * 1000))
             continue
 
-        raise RuntimeError(f"upstream-{resp.status_code}")
+        # round-robin chunk [idx : idx+STATES_PER_TICK)
+        chunk = []
+        for _ in range(STATES_PER_TICK):
+            chunk.append(ALL_STATES[idx % n])
+            idx += 1
 
-    raise RuntimeError("unreachable")
+        sys.stdout.write(f"[POLL] tick states: {', '.join(chunk)}\n")
+        sys.stdout.flush()
 
+        # VERY low concurrency
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = [pool.submit(_poll_one_state, st) for st in chunk]
+            for fut in concurrent.futures.as_completed(futures):
+                # ensure any exception logs (but we don't raise)
+                try:
+                    fut.result()
+                except Exception as e:
+                    sys.stdout.write(f"[POLL] worker error: {e}\n")
+                    sys.stdout.flush()
+
+        tick_elapsed = time.time() - tick_start
+        # sleep the difference (never negative)
+        to_sleep = max(0.0, POLL_INTERVAL_SEC - tick_elapsed)
+        time.sleep(to_sleep)
+
+# Start the background poller (daemon)
+if ENABLE_POLLING:
+    threading.Thread(target=poller_loop, daemon=True).start()
+
+# ----------------------------- Parsing utilities -----------------------------
 def _parse_election_xml(xml_blob: str) -> dict:
     """
-    Parse once into a per-county structure usable by /results and /results_state:
+    Parse once into a per-county structure:
 
-    {
-      "<base_name>": {
+    { "<base_name>": {
         "candidates": [ { "name": "First Last", "party": "REP|DEM|IND", "votes": 123 }, ... ],
         "total": 12345
-      },
-      ...
+      }, ...
     }
     """
     try:
@@ -155,7 +177,7 @@ def _parse_election_xml(xml_blob: str) -> dict:
     out: dict[str, dict] = {}
     for ru in root.iter("ReportingUnit"):
         ru_name = ru.attrib.get("Name", "")
-        key = _base_name(ru_name)  # stable county key inside a state
+        key = _base_name(ru_name)
         cands = []
         total = 0
         for c in ru.findall("Candidate"):
@@ -171,64 +193,106 @@ def _parse_election_xml(xml_blob: str) -> dict:
 
 def _get_parsed_state(state_code: str, office: str = "P") -> dict | None:
     """
-    Single-flight wrapper: if a parse for (state, office) is in progress, wait for it;
-    otherwise do the fetch+parse and publish to the cache exactly once.
+    Single-flight dedupe: return cached parsed snapshot if fresh; otherwise
+    parse a fresh one from the raw cache. Never bursts the upstream.
     """
     office = (office or "P").upper()
     now    = time.time()
     key    = (state_code, office)
 
-    # Fast path: fresh parsed snapshot already cached
     with _cache_lock:
         snap = _parsed_cache.get(key)
-        if snap and now - snap[0] < _CACHE_TTL:
+        if snap and now - snap[0] < CACHE_TTL_SEC:
             return snap[1]
-        evt = _inflight.get(key)
+        evt = _inflight_evt.get(key)
         if not evt:
             evt = threading.Event()
-            _inflight[key] = evt
+            _inflight_evt[key] = evt
             owner = True
         else:
             owner = False
 
     if not owner:
-        # Another thread is fetching/parsing; wait for it to publish.
-        evt.wait(timeout=max(2 * _CACHE_TTL, 10))
+        # wait for owner to finish
+        evt.wait(timeout=max(2 * CACHE_TTL_SEC, 10))
         with _cache_lock:
             snap = _parsed_cache.get(key)
             return snap[1] if snap else None
 
-    # We are the owner: fetch + parse, then publish and release waiters.
     try:
-        xml_blob = _fetch_state_xml(state_code, office)
-        parsed   = _parse_election_xml(xml_blob)
+        with _raw_lock:
+            raw = _raw_cache["states"].get((state_code, office))
+        if not raw:
+            return None
+        parsed = _parse_election_xml(raw["payload"])
         with _cache_lock:
             _parsed_cache[key] = (now, parsed)
         return parsed
     finally:
         with _cache_lock:
-            ev = _inflight.get(key)
+            ev = _inflight_evt.get(key)
             if ev is not None:
                 ev.set()
-                _inflight.pop(key, None)
+                _inflight_evt.pop(key, None)
 
-# --------------------------------------------------------------------------- #
-# Flask routes
-# --------------------------------------------------------------------------- #
+# ----------------------------- Response slow-down -----------------------------
+@app.after_request
+def add_no_store(resp):
+    # cache busting for browsers
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+def _slow_endpoint():
+    if SLOW_ENDPOINT_MS > 0:
+        _sleep_ms(SLOW_ENDPOINT_MS)
+
+# ----------------------------- Routes -----------------------------
 @app.route("/")
 def root():
     return send_from_directory(".", "index.html")
 
-# Client-side logging endpoint (unchanged)
 @app.route("/clientlog", methods=["POST"])
 def clientlog():
     try:
         payload = request.get_json(force=True)
     except Exception:
-        return jsonify({"ok": False, "error": "bad-json"}), 400
+        _slow_endpoint()
+        return jsonify({"ok": False, "error": "bad-json"}), 200
     sys.stdout.write("[CLIENTLOG] " + json.dumps(payload) + "\n")
     sys.stdout.flush()
+    _slow_endpoint()
     return jsonify({"ok": True}), 200
+
+@app.route("/results_state")
+def per_state_bulk():
+    state  = (request.args.get("state") or "").upper()
+    office = (request.args.get("office", "P") or "P").upper()
+
+    with _raw_lock:
+        raw = _raw_cache["states"].get((state, office))
+    if not raw:
+        _slow_endpoint()
+        return jsonify({"ok": False, "error": "no-snapshot"}), 200
+
+    # parse from cached raw (and memoize parsed)
+    try:
+        parsed = _get_parsed_state(state, office)
+        if parsed is None:
+            # fallback: parse directly now to be helpful
+            parsed = _parse_election_xml(raw["payload"])
+    except Exception as e:
+        _slow_endpoint()
+        return jsonify({"ok": False, "error": "parse-failed", "detail": str(e)}), 200
+
+    _slow_endpoint()
+    return jsonify({
+        "ok": True,
+        "state": state,
+        "office": office,
+        "counties": parsed
+    }), 200
 
 @app.route("/results")
 def per_county():
@@ -236,25 +300,28 @@ def per_county():
     county = request.args.get("county", "")
     office = (request.args.get("office", "P") or "P").upper()
 
-    # SOFT-ERROR: always HTTP 200 with ok:false
+    # soft-error contract (always 200)
     if not (state and county):
+        _slow_endpoint()
         return jsonify({"ok": False, "error": "missing-params"}), 200
 
-    snap = None
     try:
         snap = _get_parsed_state(state, office)
     except Exception as e:
+        _slow_endpoint()
         return jsonify({"ok": False, "error": "api-unavailable", "detail": str(e)}), 200
 
     if not snap:
+        _slow_endpoint()
         return jsonify({"ok": False, "error": "no-snapshot"}), 200
 
     want_key = _base_name(county)
     info = snap.get(want_key)
     if not info:
+        _slow_endpoint()
         return jsonify({"ok": False, "error": "county-not-found"}), 200
 
-    # Return the same shape you already consume on the front-end
+    _slow_endpoint()
     return jsonify({
         "ok": True,
         "state": state,
@@ -263,24 +330,26 @@ def per_county():
         "results": info["candidates"]
     }), 200
 
-# --- add this bulk endpoint next to /results_state ---
 @app.route("/results_districts")
 def per_districts_bulk():
     state = (request.args.get("state") or "").upper()
-    with _cache_lock:
-        snap = _cache["districts"].get((state,))
+    with _raw_lock:
+        snap = _raw_cache["districts"].get((state,))
     if not snap:
+        _slow_endpoint()
         return jsonify({"ok": False, "error": "no-snapshot"}), 200
 
     try:
         root = ET.fromstring(snap["payload"])
     except ET.ParseError:
+        _slow_endpoint()
         return jsonify({"ok": False, "error": "bad-xml"}), 200
 
     districts = {}
     for ru in root.iter("ReportingUnit"):
         geoid = (ru.attrib.get("DistrictId") or "").strip()
-        if not geoid: continue
+        if not geoid:
+            continue
         cands, total = [], 0
         for c in ru.findall("Candidate"):
             votes = _safe_int(c.attrib.get("VoteCount"))
@@ -290,6 +359,7 @@ def per_districts_bulk():
             total += votes
         districts[geoid] = {"candidates": cands, "total": total}
 
+    _slow_endpoint()
     return jsonify({
         "ok": True,
         "state": state,
@@ -297,51 +367,29 @@ def per_districts_bulk():
         "districts": districts
     }), 200
 
-
-
-@app.route("/results_state")
-def per_state_bulk():
-    state  = (request.args.get("state") or "").upper()
-    office = (request.args.get("office", "P") or "P").upper()
-    with _cache_lock:
-        snap = _cache["states"].get((state, office))
-    if not snap:
-        return jsonify({"ok": False, "error": "no-snapshot"}), 200
-
-    try:
-        parsed = _parse_election_xml(snap["payload"])
-    except Exception as e:
-        return jsonify({"ok": False, "error": "parse-failed", "detail": str(e)}), 200
-
-    return jsonify({
-        "ok": True,
-        "state": state,
-        "office": office,
-        "counties": parsed
-    }), 200
-
-
-# (District endpoint left as-is; can be upgraded similarly later.)
 @app.route("/results_cd")
 def per_district():
     state  = (request.args.get("state") or "").upper()
     district_id = request.args.get("district", "")
     if not (state and district_id):
+        _slow_endpoint()
         return jsonify({"ok": False, "error": "missing-params"}), 200
 
-    url     = f"{BASE_URL}/{ELECTION_DATE}".replace("/v2/elections/", "/v2/districts/")
-    headers = {"x-api-key": API_KEY}
-
+    # we fetch only the state districts snapshot and search inside it (keeps upstream slow)
+    url = f"{DISTRICTS_BASE}/{ELECTION_DATE}?statepostal={state}&level=ru"
     try:
-        resp = requests.get(f"{url}?statepostal={state}&level=ru", headers=headers, timeout=6)
+        resp = requests.get(url, headers={"x-api-key": API_KEY}, timeout=REQUEST_TIMEOUT_SEC)
         if resp.status_code != 200:
+            _slow_endpoint()
             return jsonify({"ok": False, "error": f"upstream-{resp.status_code}"}), 200
     except Exception as e:
+        _slow_endpoint()
         return jsonify({"ok": False, "error": "api-unavailable", "detail": str(e)}), 200
 
     try:
         root = ET.fromstring(resp.text)
     except ET.ParseError:
+        _slow_endpoint()
         return jsonify({"ok": False, "error": "bad-xml"}), 200
 
     want = str(district_id).strip().lstrip("0")
@@ -366,6 +414,7 @@ def per_district():
                     "party": c.attrib.get("Party"),
                     "votes": votes
                 })
+            _slow_endpoint()
             return jsonify({
                 "ok": True,
                 "district": district_id,
@@ -373,8 +422,11 @@ def per_district():
                 "results": out
             }), 200
 
+    _slow_endpoint()
     return jsonify({"ok": False, "error": "district-not-found"}), 200
 
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "9032")), debug=False)
+    # Render/Heroku-style: PORT is injected; default for local dev is 9032
+    port = int(os.getenv("PORT", "9032"))
+    # debug=False keeps polling as-is; you can set to True locally if desired
+    app.run(host="0.0.0.0", port=port, debug=False)
