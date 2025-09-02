@@ -13,17 +13,12 @@
 #
 # Scale up later by raising STATES_PER_CYCLE, lowering the delays, and (carefully) bumping MAX_CONCURRENCY.
 
-
-
 import os, time, json, threading, itertools, queue
 from collections import deque
 from datetime import datetime
 from flask import Flask, send_from_directory, jsonify, Response, request
 import requests
 import xml.etree.ElementTree as ET
-
-# add this near other globals / tunables
-_hub_q = queue.Queue()
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
@@ -162,39 +157,36 @@ def hub_loop():
     if not HUB_MODE:
         return
     snapshot_load()
-
     # Round-robin through states slowly
     rr = itertools.cycle(ALL_STATES)
+    # Simple worker queue for optional >1 concurrency
+    q = queue.Queue()
 
-    # Start a fixed worker pool that drains the single global queue
     def worker():
         while True:
-            usps = _hub_q.get()
-            try:
-                if usps is None:
-                    # reserved for future clean shutdowns
-                    return
-                fetch_state(usps)
-                time.sleep(DELAY_BETWEEN_REQUESTS)
-            finally:
-                _hub_q.task_done()
+            usps = q.get()
+            if usps is None:
+                return
+            fetch_state(usps)
+            time.sleep(DELAY_BETWEEN_REQUESTS)
+            q.task_done()
 
+    workers = []
     for _ in range(max(1, MAX_CONCURRENCY)):
         t = threading.Thread(target=worker, daemon=True)
         t.start()
+        workers.append(t)
 
-    # Enqueue batches into the shared queue; don't spawn per-cycle queues/threads
     while True:
         batch = [next(rr) for _ in range(STATES_PER_CYCLE)]
-        log(f"Cycle enqueue: {batch}")
+        log(f"Cycle start: {batch}")
         for s in batch:
-            _hub_q.put(s)
-
+            q.put(s)
+        q.join()  # wait batch
         with _cache_lock:
             _cache["last_cycle_end"] = time.time()
         snapshot_save()
-
-        # Pace the cycle; workers will keep draining the queue at MAX_CONCURRENCY
+        log(f"Cycle end. States cached: {len(_cache['p_by_state'])}/{len(ALL_STATES)}")
         time.sleep(DELAY_BETWEEN_CYCLES)
 
 # ------------------------ HTTP routes --------------------------- #
@@ -263,10 +255,10 @@ def cache_p():
 
 @app.route("/force_cycle")
 def force_cycle():
-    """Manual nudge: enqueue states into the hub queue (respects MAX_CONCURRENCY)."""
+    """Optional manual nudge: enqueue a quick small cycle (safe on free tier)."""
     if not HUB_MODE:
         return jsonify({"ok": False, "msg": "Hub disabled"}), 400
-
+    # Queue up a tiny pass of 2 states right now
     want = request.args.get("n") or 2
     try:
         want = int(want)
@@ -274,15 +266,15 @@ def force_cycle():
             want = 1
     except:
         want = 2
-
-    # Keep it simple: take the first N states; workers dedupe naturally by overwriting cache
     picks = ALL_STATES[:want]
-    for s in picks:
-        _hub_q.put(s)
-
-    log(f"Force-cycle enqueued {len(picks)} states: {picks}")
-    return jsonify({"ok": True, "enqueued": picks})
-
+    log(f"Force-cycle requested for {picks}")
+    # spawn a short-lived thread so we return immediately
+    def _force():
+        for s in picks:
+            fetch_state(s)
+            time.sleep(DELAY_BETWEEN_REQUESTS)
+    threading.Thread(target=_force, daemon=True).start()
+    return jsonify({"ok": True, "scheduled": picks})
 
 if __name__ == "__main__":
     # start hub thread
