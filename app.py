@@ -19,12 +19,13 @@ HUB_MODE      = os.getenv("HUB_MODE", "1") in ("1","true","True","YES","yes")
 
 # Pace the hub to suit your infra:
 MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "10"))
-STATES_PER_CYCLE       = int(os.getenv("STATES_PER_CYCLE", "50"))
+STATES_PER_CYCLE       = int(os.getenv("STATES_PER_CYCLE", "10"))
 DELAY_BETWEEN_REQUESTS = float(os.getenv("DELAY_BETWEEN_REQUESTS",".1"))
 DELAY_BETWEEN_CYCLES   = float(os.getenv("DELAY_BETWEEN_CYCLES",".1"))
 TIMEOUT_SECONDS        = float(os.getenv("TIMEOUT_SECONDS","15.0"))
 CACHE_SNAPSHOT_PATH    = os.getenv("CACHE_SNAPSHOT_PATH","/tmp/p_cache.json")
-MIN_STATE_REFRESH_SEC  = float(os.getenv("MIN_STATE_REFRESH_SEC","15"))  # per-state cooldown
+MIN_STATE_REFRESH_SEC  = float(os.getenv("MIN_STATE_REFRESH_SEC","1"))
+FORCE_CYCLE_COOLDOWN_SEC = float(os.getenv("FORCE_CYCLE_COOLDOWN_SEC","2"))
 
 ALL_STATES = [
     "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","IA","ID","IL","IN","KS","KY",
