@@ -137,7 +137,7 @@ async function poll(){
 
 refreshBtn.onclick = () => poll();
 nudgeBtn.onclick = async () => {
-  await fetchJSON('/force_cycle?n=2');
+  await fetchJSON('/force_cycle?n=50');
   // immediately poll to show new logs quickly
   poll();
 };
