@@ -261,7 +261,9 @@ def force_cycle():
     # Queue up a tiny pass of 2 states right now
     want = request.args.get("n") or 2
     try:
-        want = max(1, min(int(want), 8))
+        want = int(want)
+        if want < 1:
+            want = 1
     except:
         want = 2
     picks = ALL_STATES[:want]
