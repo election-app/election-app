@@ -241,6 +241,11 @@ def get_log():
         max_seq = _log_seq
     return jsonify({"max_seq":max_seq,"items":items})
 
+@app.before_first_request
+def start_hub():
+    threading.Thread(target=_hub_loop, daemon=True).start()
+
+
 if __name__ == "__main__":
     threading.Thread(target=_hub_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT","9050")))
