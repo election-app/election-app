@@ -3,43 +3,66 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Presidential Race — County Map</title>
+<title>Presidential Race — Hub & Map</title>
 <script src="https://d3js.org/d3.v6.min.js"></script>
 <script src="https://d3js.org/topojson.v3.min.js"></script>
 <style>
-  body { margin:0; font-family:sans-serif; background:#0b1220; color:#eaf0ff }
-  header { padding:12px; background:#0e1730; font-weight:bold }
-  .wrap { display:grid; grid-template-columns: 1fr 350px; height:calc(100vh - 48px); }
-  svg { width:100%; height:100%; background:#111 }
-  .sidebar { background:#14233d; padding:12px; overflow:auto }
-  .county { stroke:#444; stroke-width:0.25px; cursor:pointer }
-  .cand { font-family: ui-monospace, monospace; font-size:13px; margin:2px 0 }
-  .highlight { stroke:#fff; stroke-width:1.2px }
+  :root {
+    --bg:#0b1220; --fg:#eaf0ff; --muted:#9fb3d1; --card:#14233d; --ok:#a5f3a5; --warn:#ffd79a;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.12);background:#0e1730;font-weight:700}
+  .wrap{display:grid;grid-template-columns:1fr 400px;gap:14px;height:calc(100% - 48px)}
+  svg{width:100%;height:100%;background:#111}
+  .panel{background:var(--card);border:1px solid rgba(255,255,255,.14);border-radius:14px;display:flex;flex-direction:column;min-height:0}
+  .panel h2{margin:0;padding:10px 12px;font-size:14px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08)}
+  .controls{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;gap:8px;align-items:center}
+  button{background:#1f2d50;color:var(--fg);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:6px 9px;cursor:pointer}
+  button:hover{background:#213360}
+  .badge{background:#17274a;padding:2px 8px;border-radius:999px;font-size:11px}
+  .body{padding:10px;overflow:auto}
+  .logline{font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap}
+  .ok{color:var(--ok)} .warn{color:var(--warn)}
+  .cand{font-family:ui-monospace,monospace;font-size:13px;margin:2px 0}
+  .highlight{stroke:#fff;stroke-width:1.2px}
 </style>
 </head>
 <body>
-  <header>Presidential Race — Counties (Hub Cache)</header>
+  <header>Presidential Race — Counties <span id="statusMeta" style="font-weight:normal;margin-left:8px">loading…</span></header>
   <div class="wrap">
     <svg id="map"></svg>
-    <div class="sidebar" id="sidebar">
-      <h3>Click a county</h3>
-      <div id="countyInfo"></div>
-    </div>
+    <aside class="panel">
+      <h2>Details & Log</h2>
+      <div class="controls">
+        <button id="refreshBtn">Refresh</button>
+        <button id="nudgeBtn">Nudge Hub</button>
+        <span class="badge" id="hubBadge">hub?</span>
+      </div>
+      <div class="body" id="sidebar">
+        <h3>Click a county</h3>
+        <div id="countyInfo"></div>
+        <hr/>
+        <div id="logBody"></div>
+      </div>
+    </aside>
   </div>
 
 <script>
 const svg = d3.select("#map");
 const countyInfo = document.getElementById("countyInfo");
+const logBody = document.getElementById("logBody");
+const statusMeta = document.getElementById("statusMeta");
+const hubBadge = document.getElementById("hubBadge");
 
-let countyShapes, projection, path;
-let countyData = {}; // keyed by FIPS
+let projection, path, countyShapes, countyData={};
+let lastLogSeq = 0;
 
-// Load topojson for states + counties
+// Load topojson
 Promise.all([
   d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json"),
   d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json")
 ]).then(([stTopo, ctTopo])=>{
-  projection = d3.geoAlbersUsa().scale(1280).translate([480, 300]);
+  projection = d3.geoAlbersUsa().scale(1280).translate([480,300]);
   path = d3.geoPath().projection(projection);
 
   countyShapes = topojson.feature(ctTopo, ctTopo.objects.counties).features;
@@ -48,63 +71,85 @@ Promise.all([
     .data(countyShapes)
     .enter().append("path")
       .attr("class","county")
-      .attr("d", path)
-      .attr("fill", "#222")
-      .on("click", showCounty);
+      .attr("d",path)
+      .attr("fill","#222")
+      .attr("stroke","#444").attr("stroke-width",0.25)
+      .on("click",showCounty);
 
-  // after drawing map, fetch election data
-  fetchData();
+  fetchAll();
 });
 
-// fetch from backend cache
-async function fetchData(){
-  const res = await fetch("/cache/p", {cache:"no-store"});
-  const data = await res.json();
-  if (data && data.rows){
-    data.rows.forEach(r=>{
-      countyData[r.fips] = r;
-    });
-    // colorize map based on lead
+async function fetchJSON(url){
+  try{
+    const r=await fetch(url,{cache:"no-store"});
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(e){return null;}
+}
+
+async function fetchAll(){
+  // health
+  const h=await fetchJSON("/health");
+  if(h){
+    statusMeta.textContent=`hub=${h.hub_mode?'on':'off'} • states=${h.states_cached} • counties=${h.counties_total}`;
+    hubBadge.textContent=h.hub_mode?'hub on':'hub off';
+  }
+
+  // county data
+  const d=await fetchJSON("/cache/p");
+  if(d && d.rows){
+    d.rows.forEach(r=>{countyData[r.fips]=r;});
     svg.selectAll("path.county")
-      .attr("fill", d=>{
-        const f = String(d.id).padStart(5,"0");
-        const r = countyData[f];
-        if (!r) return "#333";
-        // find leader
-        const sorted = [...r.candidates].sort((a,b)=>b.votes-a.votes);
-        if (!sorted.length) return "#333";
-        const leader = sorted[0];
-        if (leader.party==="REP") return "#c0392b";
-        if (leader.party==="DEM") return "#2980b9";
+      .attr("fill",c=>{
+        const f=String(c.id).padStart(5,"0");
+        const r=countyData[f];
+        if(!r) return "#333";
+        const sorted=[...r.candidates].sort((a,b)=>b.votes-a.votes);
+        if(!sorted.length) return "#333";
+        const leader=sorted[0];
+        if(leader.party==="REP") return "#c0392b";
+        if(leader.party==="DEM") return "#2980b9";
         return "#8e44ad";
       });
   }
+
+  // log
+  const lg=await fetchJSON(`/log?since=${lastLogSeq}`);
+  if(lg && lg.items){
+    lg.items.forEach(it=>{
+      const div=document.createElement("div");
+      div.className="logline "+(it.lvl==="WARN"?"warn":"ok");
+      div.textContent=`[${String(it.seq).padStart(4,"0")}] ${it.ts} ${it.lvl} — ${it.msg}`;
+      logBody.appendChild(div);
+    });
+    lastLogSeq=lg.max_seq||lastLogSeq;
+    logBody.scrollTop=logBody.scrollHeight;
+  }
 }
 
-function fmt(n){ return (n||0).toLocaleString("en-US"); }
+function fmt(n){return(n||0).toLocaleString("en-US");}
 
 function showCounty(event,d){
   svg.selectAll("path.county").classed("highlight",false);
   d3.select(this).classed("highlight",true);
-
-  const f = String(d.id).padStart(5,"0");
-  const r = countyData[f];
-  if (!r){
-    countyInfo.innerHTML = `<p>No data for FIPS ${f}</p>`;
+  const f=String(d.id).padStart(5,"0");
+  const r=countyData[f];
+  if(!r){
+    countyInfo.innerHTML=`<p>No data for FIPS ${f}</p>`;
     return;
   }
-  const lines = r.candidates.map(c=>
+  const lines=r.candidates.map(c=>
     `<div class="cand">${c.name} (${c.party}) — ${fmt(c.votes)}</div>`
   ).join("");
-  countyInfo.innerHTML = `
-    <h4>${r.state} — ${r.name}</h4>
-    ${lines}
-    <div>Total: ${fmt(r.total)}</div>
-  `;
+  countyInfo.innerHTML=`<h4>${r.state} — ${r.name}</h4>${lines}<div>Total: ${fmt(r.total)}</div>`;
 }
 
-// poll every 15s to refresh colors
-setInterval(fetchData, 15000);
+// buttons
+document.getElementById("refreshBtn").onclick=()=>fetchAll();
+document.getElementById("nudgeBtn").onclick=async()=>{await fetchJSON("/force_cycle?n=50");fetchAll();};
+
+// poll every 10s
+setInterval(fetchAll,10000);
 </script>
 </body>
 </html>
