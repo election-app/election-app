@@ -256,4 +256,6 @@ def _start_hub_once():
 _start_hub_once()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT","9050")))
+    threading.Thread(target=hub_loop, daemon=True).start()
+    port = int(os.getenv("PORT","5022"))
+    app.run(host="0.0.0.0", port=port)
