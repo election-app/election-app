@@ -29,6 +29,8 @@
   <header>
     <div>Hub Cache Viewer — Presidential Counties</div>
     <span id="status" class="badge">loading…</span>
+    <span id="paintProgress" class="badge">paint 0/0</span>
+
     <!-- Single manual action: read cache -->
     <button id="getDataBtn" title="Read cached data from the app (no upstream hit)">Get Data</button>
     <a id="healthLink" class="badge" target="_blank" href="/health">health</a>
@@ -59,6 +61,8 @@ const errsEl  = document.getElementById("errs");
 const logBody = document.getElementById("logBody");
 const countyInfo = document.getElementById("countyInfo");
 let projection, path, countyShapes, countyData = {}, lastLogSeq = 0;
+const paintEl = document.getElementById("paintProgress");
+
 
 // TopoJSON from CDN (static)
 Promise.all([
@@ -83,7 +87,7 @@ Promise.all([
 
   // initial one-time read from cache
   getDataFromCache();
-  setInterval(getDataFromCache, 30_000); // auto-refresh cache read every 30s
+  setInterval(getDataFromCache, 10_000); // auto-refresh cache read every 30s
 });
 
 async function getJSON(url){
@@ -150,19 +154,26 @@ async function getDataFromCache(){
     }
 
 
-function colorize(){
-  svg.selectAll("path.county").attr("fill", c=>{
-    const f = String(c.id).padStart(5,"0");
-    const r = countyData[f];
-    if(!r) return "#303543";
-    const sorted = [...r.candidates].sort((a,b)=>b.votes-a.votes);
-    if(!sorted.length) return "#303543";
-    const lead = sorted[0].party;
-    if(lead === "REP") return "#c0392b";
-    if(lead === "DEM") return "#2980b9";
-    return "#8e44ad";
-  });
-}
+    function colorize(){
+      let painted = 0;
+      let total = countyShapes.length;
+
+      svg.selectAll("path.county").attr("fill", c=>{
+        const f = String(c.id).padStart(5,"0");
+        const r = countyData[f];
+        if(!r) return "#303543";
+        const sorted = [...r.candidates].sort((a,b)=>b.votes-a.votes);
+        if(!sorted.length) return "#303543";
+        const lead = sorted[0].party;
+        painted++;
+        if(lead === "REP") return "#c0392b";
+        if(lead === "DEM") return "#2980b9";
+        return "#8e44ad";
+      });
+
+      paintEl.textContent = `paint ${painted}/${total}`;
+    }
+
 
 function fmt(n){return(n||0).toLocaleString("en-US");}
 
