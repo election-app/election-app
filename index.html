@@ -62,6 +62,8 @@ const logBody = document.getElementById("logBody");
 const countyInfo = document.getElementById("countyInfo");
 let projection, path, countyShapes, countyData = {}, lastLogSeq = 0;
 const paintEl = document.getElementById("paintProgress");
+let painting = false, restartAfterPaint = false;
+let countiesSel = null;
 
 
 // TopoJSON from CDN (static)
@@ -84,6 +86,8 @@ Promise.all([
       .attr("fill","#222")
       .attr("stroke","#444").attr("stroke-width",0.25)
       .on("click",showCounty);
+      countiesSel = svg.selectAll("path.county");
+
 
   // initial one-time read from cache
   getDataFromCache();
@@ -107,10 +111,11 @@ async function getDataFromCache(){
   }
 
   const d = await getJSON("/cache/p");
-  if(d && d.rows){
+  if (d && d.rows) {
     d.rows.forEach(row => { countyData[row.fips] = row; });
-    colorize();
+    colorizeIncremental();   // <— incremental repaint + HUD progress
   }
+
   if(selectedFips){
     renderCountyPanel(selectedFips); // refresh the panel with new numbers
   }
@@ -153,26 +158,56 @@ async function getDataFromCache(){
       countyInfo.innerHTML = `<h4>${r.state} — ${r.name}</h4>${lines}<div>Total: ${fmt(r.total)}</div>`;
     }
 
-
-    function colorize(){
-      let painted = 0;
-      let total = countyShapes.length;
-
-      svg.selectAll("path.county").attr("fill", c=>{
-        const f = String(c.id).padStart(5,"0");
-        const r = countyData[f];
-        if(!r) return "#303543";
-        const sorted = [...r.candidates].sort((a,b)=>b.votes-a.votes);
-        if(!sorted.length) return "#303543";
-        const lead = sorted[0].party;
-        painted++;
-        if(lead === "REP") return "#c0392b";
-        if(lead === "DEM") return "#2980b9";
-        return "#8e44ad";
-      });
-
-      paintEl.textContent = `paint ${painted}/${total}`;
+    function fillForFeature(d){
+      const f = String(d.id).padStart(5,"0");
+      const r = countyData[f];
+      if(!r || !r.candidates || !r.candidates.length) return "#303543"; // no data yet
+      const lead = r.candidates.slice().sort((a,b)=>b.votes-a.votes)[0].party;
+      if(lead === "REP") return "#c0392b";
+      if(lead === "DEM") return "#2980b9";
+      return "#8e44ad";
     }
+
+    function colorizeIncremental(){
+      if (painting) {          // if a repaint is mid-flight, queue one after
+        restartAfterPaint = true;
+        return;
+      }
+      painting = true;
+      restartAfterPaint = false;
+
+      const total = countyShapes.length;
+      let i = 0, painted = 0;
+      const BATCH = 250;       // tune this up/down for speed vs. smoothness
+
+      // reset so the HUD visibly climbs each refresh
+      paintEl.textContent = `paint 0/${total}`;
+      countiesSel.attr("fill", "#222");
+
+      function step(){
+        const end = Math.min(i + BATCH, total);
+        countiesSel
+          .filter((d, idx) => idx >= i && idx < end)
+          .attr("fill", d => {
+            const fill = fillForFeature(d);
+            if (fill !== "#303543") painted++; // count only counties with data
+            return fill;
+          });
+
+        paintEl.textContent = `paint ${painted}/${total}`;
+        i = end;
+
+        if (i < total) {
+          requestAnimationFrame(step);
+        } else {
+          painting = false;
+          if (restartAfterPaint) colorizeIncremental();
+        }
+      }
+
+      requestAnimationFrame(step);
+    }
+
 
 
 function fmt(n){return(n||0).toLocaleString("en-US");}
