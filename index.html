@@ -83,6 +83,7 @@ Promise.all([
 
   // initial one-time read from cache
   getDataFromCache();
+  setInterval(getDataFromCache, 10_000); // auto-refresh cache read every 30s
 });
 
 async function getJSON(url){
@@ -106,6 +107,10 @@ async function getDataFromCache(){
     d.rows.forEach(row => { countyData[row.fips] = row; });
     colorize();
   }
+  if(selectedFips){
+    renderCountyPanel(selectedFips); // refresh the panel with new numbers
+  }
+
 
   // append-only log read (also cached)
   const lg = await getJSON(`/log?since=${lastLogSeq}`);
@@ -120,6 +125,30 @@ async function getDataFromCache(){
     logBody.scrollTop = logBody.scrollHeight;
   }
 }
+    
+    // --- add here ---
+    let selectedFips = null; // track selected county
+
+    function showCounty(event,d){
+      svg.selectAll("path.county").classed("highlight",false);
+      d3.select(this).classed("highlight",true);
+      const f = String(d.id).padStart(5,"0");
+      selectedFips = f;  // remember last selected FIPS
+      renderCountyPanel(f);
+    }
+
+    function renderCountyPanel(f){
+      const r = countyData[f];
+      if(!r){
+        countyInfo.innerHTML = `<p>No cached data for FIPS ${f}</p>`;
+        return;
+      }
+      const lines = r.candidates
+        .map(c=>`<div class="cand">${c.name} (${c.party}) — ${fmt(c.votes)}</div>`)
+        .join("");
+      countyInfo.innerHTML = `<h4>${r.state} — ${r.name}</h4>${lines}<div>Total: ${fmt(r.total)}</div>`;
+    }
+
 
 function colorize(){
   svg.selectAll("path.county").attr("fill", c=>{
@@ -136,15 +165,7 @@ function colorize(){
 }
 
 function fmt(n){return(n||0).toLocaleString("en-US");}
-function showCounty(event,d){
-  svg.selectAll("path.county").classed("highlight",false);
-  d3.select(this).classed("highlight",true);
-  const f = String(d.id).padStart(5,"0");
-  const r = countyData[f];
-  if(!r){ countyInfo.innerHTML = `<p>No cached data for FIPS ${f}</p>`; return; }
-  const lines = r.candidates.map(c=>`<div class="cand">${c.name} (${c.party}) — ${fmt(c.votes)}</div>`).join("");
-  countyInfo.innerHTML = `<h4>${r.state} — ${r.name}</h4>${lines}<div>Total: ${fmt(r.total)}</div>`;
-}
+
 
 // Wire the single button
 document.getElementById("getDataBtn").onclick = getDataFromCache;
