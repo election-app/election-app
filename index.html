@@ -91,7 +91,7 @@ Promise.all([
 
   // initial one-time read from cache
   getDataFromCache();
-  setInterval(getDataFromCache, 30_000); // auto-refresh cache read every 30s
+  setInterval(getDataFromCache, 5_000); // auto-refresh cache read every 30s
 });
 
 async function getJSON(url){
