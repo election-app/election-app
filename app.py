@@ -14,9 +14,9 @@ app = Flask(__name__, static_folder='.', static_url_path='')
 
 # ---------------- Tunables (env) ----------------
 # Statewide offices (P/S/G) endpoint:
-BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "http://localhost:5036/v2/elections"))
+BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "https://api2-app2.onrender.com/v2/elections"))
 # House districts endpoint:
-BASE_URL_D    = os.getenv("BASE_URL_D", "http://localhost:5036/v2/districts")
+BASE_URL_D    = os.getenv("BASE_URL_D", "https://api2-app2.onrender.com/v2/districts")
 
 ELECTION_DATE = os.getenv("ELECTION_DATE", "2024-11-05")
 HUB_MODE      = os.getenv("HUB_MODE", "1") in ("1","true","True","YES","yes")
