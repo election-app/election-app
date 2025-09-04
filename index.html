@@ -27,7 +27,7 @@
 </head>
 <body>
   <header>
-    <div>Hub Cache Viewer — Presidential Counties</div>
+      <div>Hub Cache Viewer</div>
     <span id="status" class="badge">loading…</span>
     <span id="paintProgress" class="badge">paint 0/0</span>
 
@@ -35,6 +35,29 @@
     <button id="getDataBtn" title="Read cached data from the app (no upstream hit)">Get Data</button>
     <a id="healthLink" class="badge" target="_blank" href="/health">health</a>
   </header>
+  
+  
+  <!-- Race selectors (below header, left) -->
+  <div id="raceControls" style="display:flex;gap:10px;align-items:center;padding:10px 16px;">
+    <label class="kv">Office:
+      <select id="officeSelect">
+        <option value="P">President (P)</option>
+        <option value="S">Senate (S)</option>
+        <option value="G">Governor (G)</option>
+        <option value="H">House (H)</option>
+      </select>
+    </label>
+    <label class="kv">Race type:
+      <select id="raceTypeSelect">
+        <!-- core set; add more as you like -->
+        <option value="G">General (G)</option>
+        <option value="D">Dem Primary (D)</option>
+        <option value="R">GOP Primary (R)</option>
+      </select>
+    </label>
+    <button id="applyRaceBtn" title="Reload from cache using selected race">Apply</button>
+    <span class="kv" id="activeCombo" style="opacity:.85;"></span>
+  </div>
 
   <div class="wrap">
     <svg id="map"></svg>
@@ -54,6 +77,20 @@
   </div>
 
 <script>
+    
+    let selectedFips = null;
+    let selectedDistrict = null;
+
+    
+    // Active selection (defaults)
+    let OFFICE = "S";      // P | S | G | H
+    let RACE   = "D";      // G, D, R, W, H, U, V, J, K, A, B, APP, SAP, N, NP, L, T, RET, E, S
+
+    function updateActiveBadge(){
+      const badge = document.getElementById("activeCombo");
+      if (badge) badge.textContent = `office=${OFFICE} • raceTypeId=${RACE}`;
+    }
+
 const svg = d3.select("#map");
 const statusEl = document.getElementById("status");
 const callsEl = document.getElementById("calls");
@@ -69,31 +106,89 @@ let countiesSel = null;
 // TopoJSON from CDN (static)
 Promise.all([
   d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json"),
-  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json")
-]).then(([stTopo, ctTopo])=>{
-  const w = document.querySelector(".wrap").clientWidth - 440;
-  const h = document.querySelector(".wrap").clientHeight;
-  projection = d3.geoAlbersUsa().translate([w/2, h/2]).scale(Math.min(w,h)*1.25);
-  path = d3.geoPath().projection(projection);
+  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json"),
+  d3.json("cb_2024_us_cd119_500k.json") // local or hosted districts TopoJSON
+             ]).then(([stTopo, ctTopo, cdTopo])=>{
+                 // inside the Promise.all(...).then(...)
+                 document.getElementById("officeSelect").value = OFFICE;
+                 document.getElementById("raceTypeSelect").value = RACE;
+                 document.getElementById("applyRaceBtn").onclick = () => {
+                     OFFICE = document.getElementById("officeSelect").value;
+                     RACE   = document.getElementById("raceTypeSelect").value;
+                     
+                     // NOTE: This viewer draws COUNTIES; House (H) returns DISTRICTS.
+                     // It will still fetch, but the map won't match without district shapes.
+                     // clear current paint + cache and fetch anew
+                     countyData = {};
+                     drawShapes();          // <— add this
+                     colorizeIncremental();
+                     getDataFromCache();
+                     updateActiveBadge();
+                 };
+                 
+                 updateActiveBadge();
+                 
+                 const w = document.querySelector(".wrap").clientWidth - 440;
+                 const h = document.querySelector(".wrap").clientHeight;
+                 projection = d3.geoAlbersUsa().translate([w/2, h/2]).scale(Math.min(w,h)*1.25);
+                 path = d3.geoPath().projection(projection);
+                 
+                 countyShapes = topojson.feature(ctTopo, ctTopo.objects.counties).features;
+                 districtShapes = topojson.feature(cdTopo, cdTopo.objects.cb_2024_us_cd119_500k).features;
 
-  countyShapes = topojson.feature(ctTopo, ctTopo.objects.counties).features;
+                 function drawShapes(){
+                   svg.selectAll("path").remove();
 
-  svg.selectAll("path.county")
-    .data(countyShapes)
-    .enter().append("path")
-      .attr("class","county")
-      .attr("d",path)
-      .attr("fill","#222")
-      .attr("stroke","#444").attr("stroke-width",0.25)
-      .on("click",showCounty);
-      countiesSel = svg.selectAll("path.county");
-
-
-  // initial one-time read from cache
+                   if (OFFICE === "H") {
+                     // House districts
+                     svg.selectAll("path.district")
+                       .data(districtShapes)
+                       .enter().append("path")
+                         .attr("class","district")
+                         .attr("d",path)
+                         .attr("fill","#222")
+                         .attr("stroke","#444").attr("stroke-width",0.25)
+                         .on("click",showDistrict);
+                     countiesSel = svg.selectAll("path.district");
+                   } else {
+                     // Counties
+                     svg.selectAll("path.county")
+                       .data(countyShapes)
+                       .enter().append("path")
+                         .attr("class","county")
+                         .attr("d",path)
+                         .attr("fill","#222")
+                         .attr("stroke","#444").attr("stroke-width",0.25)
+                         .on("click",showCounty);
+                     countiesSel = svg.selectAll("path.county");
+                   }
+                 }
+                 drawShapes();
   getDataFromCache();
   setInterval(getDataFromCache, 5_000); // auto-refresh cache read every 30s
 });
 
+    function showDistrict(event,d){
+      svg.selectAll("path.district").classed("highlight",false);
+      d3.select(this).classed("highlight",true);
+      const did = String(d.properties.CD116FP || d.properties.CD118FP || d.id).padStart(2,"0");
+      selectedDistrict = did;
+      renderDistrictPanel(did);
+    }
+
+    function renderDistrictPanel(did){
+      const r = Object.values(countyData).find(x=>x.district_id===did);
+      if(!r){
+        countyInfo.innerHTML = `<p>No cached data for district ${did}</p>`;
+        return;
+      }
+      const lines = r.candidates
+        .map(c=>`<div class="cand">${c.name} (${c.party}) — ${fmt(c.votes)}</div>`)
+        .join("");
+      countyInfo.innerHTML = `<h4>${r.state} — ${r.name}</h4>${lines}<div>Total: ${fmt(r.total)}</div>`;
+    }
+
+    
 async function getJSON(url){
   try {
     const r = await fetch(url, { cache: "no-store" });
@@ -110,15 +205,31 @@ async function getDataFromCache(){
     if(h.stats){ callsEl.textContent=h.stats.upstream_calls; errsEl.textContent=h.stats.errors; }
   }
 
-  const d = await getJSON("/cache/p");
+  // Example: Senate Democratic primary
+  const d = await getJSON(`/cache/ru?office=${OFFICE}&raceTypeId=${encodeURIComponent(RACE)}`);
+
+  // Example: Governor general election
+  // const d = await getJSON("/cache/ru?office=G&raceTypeId=G");
+
+  // Example: House GOP runoff
+  // const d = await getJSON("/cache/ru?office=H&raceTypeId=V");
+
   if (d && d.rows) {
-    d.rows.forEach(row => { countyData[row.fips] = row; });
+    if (OFFICE === "H") {
+      d.rows.forEach(row => { countyData[row.district_id] = row; });
+    } else {
+      d.rows.forEach(row => { countyData[row.fips] = row; });
+    }
     colorizeIncremental();   // <— incremental repaint + HUD progress
   }
 
-  if(selectedFips){
-    renderCountyPanel(selectedFips); // refresh the panel with new numbers
+
+  if (OFFICE === "H" && selectedDistrict) {
+    renderDistrictPanel(selectedDistrict);  // refresh House district panel
+  } else if (selectedFips) {
+    renderCountyPanel(selectedFips);        // refresh county panel
   }
+
 
 
   // append-only log read (also cached)
@@ -136,7 +247,7 @@ async function getDataFromCache(){
 }
     
     // --- add here ---
-    let selectedFips = null; // track selected county
+
 
     function showCounty(event,d){
       svg.selectAll("path.county").classed("highlight",false);
@@ -159,14 +270,25 @@ async function getDataFromCache(){
     }
 
     function fillForFeature(d){
-      const f = String(d.id).padStart(5,"0");
-      const r = countyData[f];
-      if(!r || !r.candidates || !r.candidates.length) return "#303543"; // no data yet
-      const lead = r.candidates.slice().sort((a,b)=>b.votes-a.votes)[0].party;
-      if(lead === "REP") return "#c0392b";
-      if(lead === "DEM") return "#2980b9";
-      return "#8e44ad";
+      if (OFFICE === "H") {
+        const did = String(d.properties.CD116FP || d.properties.CD118FP || d.id).padStart(2,"0");
+        const r = Object.values(countyData).find(x=>x.district_id===did);
+        if(!r || !r.candidates.length) return "#303543";
+        const lead = r.candidates.slice().sort((a,b)=>b.votes-a.votes)[0].party;
+        if(lead === "REP") return "#c0392b";
+        if(lead === "DEM") return "#2980b9";
+        return "#8e44ad";
+      } else {
+        const f = String(d.id).padStart(5,"0");
+        const r = countyData[f];
+        if(!r || !r.candidates.length) return "#303543";
+        const lead = r.candidates.slice().sort((a,b)=>b.votes-a.votes)[0].party;
+        if(lead === "REP") return "#c0392b";
+        if(lead === "DEM") return "#2980b9";
+        return "#8e44ad";
+      }
     }
+
 
     function colorizeIncremental(){
       if (painting) {          // if a repaint is mid-flight, queue one after
@@ -176,7 +298,7 @@ async function getDataFromCache(){
       painting = true;
       restartAfterPaint = false;
 
-      const total = countyShapes.length;
+      const total = (OFFICE === "H" ? districtShapes.length : countyShapes.length);
       let i = 0, painted = 0;
       const BATCH = 250;       // tune this up/down for speed vs. smoothness
 
