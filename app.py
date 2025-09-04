@@ -21,9 +21,10 @@ BASE_URL_D    = os.getenv("BASE_URL_D", "https://api2-app2.onrender.com/v2/distr
 ELECTION_DATE = os.getenv("ELECTION_DATE", "2024-11-05")
 HUB_MODE      = os.getenv("HUB_MODE", "1") in ("1","true","True","YES","yes")
 
-# Which combos to poll (comma-separated). Add others like "Lib,Grn,NP,APP,RET" if desired.
-OFFICES    = [x.strip().upper() for x in os.getenv("OFFICES", "P,S,G,H").split(",") if x.strip()]
-RACE_TYPES = [x.strip() for x in os.getenv("RACE_TYPES", "G,D,R").split(",") if x.strip()]
+# Restrict polling to only Presidential General
+OFFICES    = ["P"]
+RACE_TYPES = ["G"]
+
 
 # Pace the hub to suit your infra:
 MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "10"))
