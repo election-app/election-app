@@ -22,12 +22,8 @@ ELECTION_DATE = os.getenv("ELECTION_DATE", "2024-11-05")
 HUB_MODE      = os.getenv("HUB_MODE", "1") in ("1","true","True","YES","yes")
 
 # Which combos to poll (comma-separated). Add others like "Lib,Grn,NP,APP,RET" if desired.
-# Restrict to Presidential, Senate, Governor, House
 OFFICES    = [x.strip().upper() for x in os.getenv("OFFICES", "P,S,G,H").split(",") if x.strip()]
-
-# Restrict to General (G), Dem Primary (D), GOP Primary (R) only
-RACE_TYPES = [x.strip().upper() for x in os.getenv("RACE_TYPES", "G,D,R").split(",") if x.strip()]
-
+RACE_TYPES = [x.strip() for x in os.getenv("RACE_TYPES", "G,D,R").split(",") if x.strip()]
 
 # Pace the hub to suit your infra:
 MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "10"))
@@ -115,7 +111,7 @@ def _build_url(usps: str, office: str, race_type: str) -> str:
                 f"?statepostal={usps}&raceTypeId={race_type}&raceId=0&level=ru&officeId={office}")
 
 # -------------- Parsers ----------------
-def _parse_state_ru(xml_text: str, usps: str) -> dict:
+def _parse_state_ru(xml_text: str, usps: str, office: str, race_type: str) -> dict:
     """
     Generic county-level parser for P/S/G responses from /v2/elections.
     Returns {"counties": { fips: {state,fips,name,candidates,total} } }
@@ -134,16 +130,21 @@ def _parse_state_ru(xml_text: str, usps: str) -> dict:
             try:
                 votes = int(raw_v)
             except (ValueError, TypeError):
-                votes = 0
-                # no crash: keep 0 for bad data, consistent with your fallback approach
-                log(f"Non-numeric VoteCount='{raw_v}' {usps} {fips} party={party} -> using 0", "WARN")
+                prev = _get_prev_vote_county(usps, fips, party, office, race_type)
+                if prev is not None:
+                    votes = prev
+                    log(f"Non-numeric VoteCount='{raw_v}' {usps} {fips} party={party} -> using last cached {prev}", "WARN")
+                else:
+                    votes = 0
+                    log(f"Non-numeric VoteCount='{raw_v}' {usps} {fips} party={party} -> using 0 (no prior)", "WARN")
+            # 👇 notice these are OUTSIDE the try/except
             total += votes
             cands.append({"name": (first + " " + last).strip(), "party": party, "votes": votes})
         out["counties"][fips] = {"state": usps, "fips": fips, "name": name,
                                  "candidates": cands, "total": total}
     return out
 
-def _parse_house_ru(xml_text: str, usps: str) -> dict:
+def _parse_house_ru(xml_text: str, usps: str, office: str, race_type: str) -> dict:
     """
     District-level parser for H responses from /v2/districts.
     Returns {"districts": { did: {state,did,district,name,candidates,total} } }
@@ -163,8 +164,14 @@ def _parse_house_ru(xml_text: str, usps: str) -> dict:
             try:
                 votes = int(raw_v)
             except (ValueError, TypeError):
-                votes = 0
-                log(f"Non-numeric VoteCount='{raw_v}' {usps} {did} party={party} -> using 0", "WARN")
+                prev = _get_prev_vote_district(usps, did or dnum, party, office, race_type)
+                if prev is not None:
+                    votes = prev
+                    log(f"Non-numeric VoteCount='{raw_v}' {usps} {did} party={party} -> using last cached {prev}", "WARN")
+                else:
+                    votes = 0
+                    log(f"Non-numeric VoteCount='{raw_v}' {usps} {did} party={party} -> using 0 (no prior)", "WARN")
+            # 👇 outside try/except
             total += votes
             cands.append({"name": (first + " " + last).strip(), "party": party, "votes": votes})
         out["districts"][did or dnum] = {
@@ -189,6 +196,40 @@ def _should_refetch(office: str, race_type: str, usps: str) -> bool:
     with _cache_lock:
         last = _stats["per_combo_state"].get(_combo_state_key(office, race_type, usps),{}).get("last_fetch",0.0)
     return (time.time() - last) >= MIN_STATE_REFRESH_SEC
+    
+    
+def _get_prev_vote_county(usps: str, fips: str, party: str, office: str, race_type: str):
+    combo = _combo_key(office, race_type)
+    with _cache_lock:
+        bucket = _cache["cache_by_combo"].get(combo, {})
+        state_blob = (bucket.get("states") or {}).get(usps, {})
+        counties = state_blob.get("counties") or {}
+        c = counties.get(fips)
+        if not c: return None
+        for cand in c.get("candidates", []):
+            if cand.get("party") == party:
+                try:
+                    return int(cand.get("votes") or 0)
+                except Exception:
+                    return None
+    return None
+
+def _get_prev_vote_district(usps: str, did: str, party: str, office: str, race_type: str):
+    combo = _combo_key(office, race_type)
+    with _cache_lock:
+        bucket = _cache["cache_by_combo"].get(combo, {})
+        state_blob = (bucket.get("states") or {}).get(usps, {})
+        districts = state_blob.get("districts") or {}
+        d = districts.get(did)
+        if not d: return None
+        for cand in d.get("candidates", []):
+            if cand.get("party") == party:
+                try:
+                    return int(cand.get("votes") or 0)
+                except Exception:
+                    return None
+    return None
+
 
 def _fetch_state(usps: str, office: str, race_type: str):
     combo = _combo_key(office, race_type)
@@ -228,9 +269,9 @@ def _fetch_state(usps: str, office: str, race_type: str):
 
         # Parse
         if office.upper() == "H":
-            parsed = _parse_house_ru(r.text, usps)
+            parsed = _parse_house_ru(r.text, usps, office, race_type)
         else:
-            parsed = _parse_state_ru(r.text, usps)
+            parsed = _parse_state_ru(r.text, usps, office, race_type)
 
         # Store
         _ensure_combo_bucket(office, race_type)
@@ -389,4 +430,4 @@ def get_log():
 
 if __name__ == "__main__":
     threading.Thread(target=_hub_loop, daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT","9051")))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT","9052")))
