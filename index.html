@@ -5632,6 +5632,9 @@ window.addEventListener('elections:data-updated', () => {
 const DISTRICT_TOPO_CACHE = Object.create(null);
 const GOV_HIST_YEARS = new Set(["2016","2018","2020","2022","2024"]);
 // put this near your HIST_* sets
+// 🔧 master switch: block ALL historic fetching/preload
+const ENABLE_HISTORIC = false;
+
 const HIST_BASE = window.HIST_BASE || '../HistoricData'; // adjust '../' as needed
 
 
@@ -5798,17 +5801,19 @@ function zoomOutOne(){
 
 
 
-function isHistoricMode() {
-  // P: 2016/2020/2024 GEN
-  if (OFFICE === "P" && RACE === "G" && (YEAR === "2016" || YEAR === "2020" || YEAR === "2024")) return true;
-  // G: 2016–2024 GEN (per your GOV_HIST_YEARS)
-  if (OFFICE === "G" && RACE === "G" && GOV_HIST_YEARS.has(YEAR)) return true;
-  // S: 2016–2024 GEN (per your SEN_HIST_YEARS)
-  if (OFFICE === "S" && RACE === "G" && SEN_HIST_YEARS.has(YEAR)) return true;
-  // H: 2024 GEN (you’ll load district data when you add the parser)
-  if (OFFICE === "H" && RACE === "G" && HOUSE_HIST_YEARS.has(YEAR)) return true;
-  return false;
-}
+    function isHistoricMode() {
+      if (!ENABLE_HISTORIC) return false;   // ⬅️ hard gate: never treat any year as “historic”
+      // P: 2016/2020/2024 GEN
+      if (OFFICE === "P" && RACE === "G" && (YEAR === "2016" || YEAR === "2020" || YEAR === "2024")) return true;
+      // G: 2016–2024 GEN
+      if (OFFICE === "G" && RACE === "G" && GOV_HIST_YEARS.has(YEAR)) return true;
+      // S: 2016–2024 GEN
+      if (OFFICE === "S" && RACE === "G" && SEN_HIST_YEARS.has(YEAR)) return true;
+      // H: 2016–2024 GEN
+      if (OFFICE === "H" && RACE === "G" && HOUSE_HIST_YEARS.has(YEAR)) return true;
+      return false;
+    }
+
 
 
 // Postal abbreviations to try for historic 2024 Presidential (GEN) XML
@@ -7605,7 +7610,7 @@ Promise.all([
   
   
   drawShapes();
-  setTimeout(() => { warmHistoricPreload(); }, 0);
+  if (ENABLE_HISTORIC) setTimeout(() => { warmHistoricPreload(); }, 0);
   getDataFromCache().finally(() => {
     if (NAV_LEVEL === 0 && !selectedStateFP && !selectedFips && !selectedDistrict) {
       renderNationalPanel();
