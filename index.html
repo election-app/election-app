@@ -6557,7 +6557,6 @@ Promise.all([
     .scaleExtent([1, 24])
     .filter((event) => {
       if (document.body.classList.contains('path-mode')) return false;
-
       if (inkMode !== "pen") return true;
 
       const t = event?.type;
@@ -6570,14 +6569,12 @@ Promise.all([
 
       return false; // one-finger drags stay in pen mode
     })
-
     .on("zoom", (event) => {
       currentZoomK = event.transform.k;
       rootG.attr("transform", event.transform);
 
       cityLayer.attr("display", (currentZoomK < CITY_MIN_K || NAV_LEVEL === 0) ? "none" : null);
-      
-      // keep any effects inverse-scaled (your blur/grow pattern)
+
       if (rafId == null) {
         const k = event.transform.k;
         rafId = requestAnimationFrame(() => {
@@ -6592,6 +6589,7 @@ Promise.all([
           rafCity = null;
         });
       }
+
       // keep pen strokes constant width on screen
       d3.select("#inkLayer").selectAll(".pen-stroke")
         .attr("stroke-width", function(){ return this.baseWidth / currentZoomK; });
@@ -6603,41 +6601,43 @@ Promise.all([
       updateCityLabels();
     });
 
-  d3.select("#map")
-    .call(zoom)
-    // --- Touch: double-tap zoom (in); two-finger double-tap zoom (out)
-    (function addDoubleTapZoom(){
-      let lastTap = 0;
-      svg.on("pointerdown.doubletap", (e) => {
-        if (e.pointerType !== 'touch') return;
-        if (document.body.classList.contains('path-mode')) return; // off in Path
-        if (inkMode === 'pen') return; // don't steal taps from pen
+  // ✅ bind zoom to the SVG — end the chain here
+  svg.call(zoom);
 
-        const now = performance.now();
-        const dt  = now - lastTap;
-        lastTap = now;
+  // --- Touch: double-tap zoom (in); two-finger double-tap zoom (out)
+  (function addDoubleTapZoom(){
+    let lastTap = 0;
+    svg.on("pointerdown.doubletap", (e) => {
+      if (e.pointerType !== 'touch') return;
+      if (document.body.classList.contains('path-mode')) return; // off in Path
+      if (inkMode === 'pen') return; // don't steal taps from pen
 
-        if (dt > 0 && dt < 300) {
-          const p = d3.pointer(e, svg.node());
-          const fingers = (e.touches?.length || 1);
-          const factor  = fingers >= 2 ? 1/1.6 : 1.6;  // 2-finger = zoom OUT
-          svg.transition().duration(250).call(zoom.scaleBy, factor, p);
-          e.preventDefault(); e.stopPropagation();
-        }
-      }, { passive:false });
-    })();
+      const now = performance.now();
+      const dt  = now - lastTap;
+      lastTap = now;
 
-    d3.select("#map").call(zoom.transform, INITIAL_VIEW);
-
-
-    let __suppressNextClick = false;
-    document.getElementById('map')?.addEventListener('click', (e) => {
-      if (inkMode === 'pen' || __suppressNextClick) {
-        e.preventDefault();
-        e.stopPropagation();
-        __suppressNextClick = false;  // consume one click
+      if (dt > 0 && dt < 300) {
+        const p = d3.pointer(e, svg.node());
+        const fingers = (e.touches?.length || 1);
+        const factor  = fingers >= 2 ? 1/1.6 : 1.6;  // 2-finger = zoom OUT
+        svg.transition().duration(250).call(zoom.scaleBy, factor, p);
+        e.preventDefault(); e.stopPropagation();
       }
-    }, true); // capture phase
+    }, { passive:false });
+  })();
+
+  // ✅ apply the initial transform as a separate statement (no leading dot)
+  svg.call(zoom.transform, INITIAL_VIEW);
+
+  // Optional: swallow clicks right after a pen tap so map doesn't misfire
+  let __suppressNextClick = false;
+  document.getElementById('map')?.addEventListener('click', (e) => {
+    if (inkMode === 'pen' || __suppressNextClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      __suppressNextClick = false;  // consume one click
+    }
+  }, true); // capture phase
 
     
     // tap-vs-drag threshold for pen
@@ -7067,7 +7067,7 @@ Promise.all([
           .attr("fill", "#fff")
           .attr("fill-opacity", 0)
           .attr("stroke", "#fff")                 // was "#fff"
-          .attr("stroke-width", 16)               // was 0.5
+          .attr("stroke-width", 0.5)               // was 0.5
           .attr("vector-effect", "non-scaling-stroke")
           .style("pointer-events", sd => isStateClickable(sd) ? "auto" : "none")
           .style("cursor",        sd => isStateClickable(sd) ? "pointer" : "default")
@@ -7142,7 +7142,7 @@ Promise.all([
             .attr("fill", "#fff")
             .attr("fill-opacity", 0)
             .attr("stroke", "#fff")                 // was "#fff"
-            .attr("stroke-width", 16)               // was 0.5
+            .attr("stroke-width", 0.5)               // was 0.5
             .attr("vector-effect", "non-scaling-stroke")
             .style("pointer-events", sd => isStateClickable(sd) ? "auto" : "none")
             .style("cursor",        sd => isStateClickable(sd) ? "pointer" : "default")
