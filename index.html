@@ -6627,7 +6627,8 @@ Promise.all([
       }, { passive:false });
     })();
 
-    .call(zoom.transform, INITIAL_VIEW);
+    d3.select("#map").call(zoom.transform, INITIAL_VIEW);
+
 
     let __suppressNextClick = false;
     document.getElementById('map')?.addEventListener('click', (e) => {
