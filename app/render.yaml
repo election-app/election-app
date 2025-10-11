@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: election-app
+    env: python
+    buildCommand: pip install -r app/requirements.txt
+    startCommand: cd app && gunicorn app:app --bind 0.0.0.0:$PORT
