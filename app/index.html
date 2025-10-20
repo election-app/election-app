@@ -5249,6 +5249,54 @@ const callsEl = document.getElementById("calls") || { textContent: "" };
 const errsEl  = document.getElementById("errs")  || { textContent: "" };
 const logBody = document.getElementById("logBody") || { insertAdjacentHTML(){}, innerHTML:"" };
 const countyInfo = document.getElementById("countyInfo");
+// === Atomic candidate-card swap: preload images, then swap in one commit ===
+const PANEL_SWAP = { pending: 0 };
+
+function __extractImgSrcsFromHTML(html) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  const imgs = Array.from(wrap.querySelectorAll('img'));
+  // resolve to absolute URLs so cache de-dupes
+  const a = document.createElement('a');
+  return imgs.map(img => {
+    try { a.href = img.getAttribute('src') || ''; return a.href; }
+    catch { return img.getAttribute('src') || ''; }
+  }).filter(Boolean);
+}
+
+function __preloadUrls(urls) {
+  const seen = new Set();
+  const tasks = [];
+  for (const u of urls) {
+    if (seen.has(u)) continue;
+    seen.add(u);
+    tasks.push(new Promise(res => {
+      const im = new Image();
+      // important: decode resolves after the image is fully ready to paint
+      im.decoding = 'async';
+      im.onload = () => res();
+      im.onerror = () => res();   // fail closed: never block the swap
+      im.src = u;
+    }));
+  }
+  return Promise.allSettled(tasks);
+}
+
+/**
+ * Build the next panel off-DOM, preload all <img> sources, then swap atomically.
+ * Works for any cards HTML (state, county, district, national).
+ */
+async function setPanelHTML(html, { afterSwap } = {}) {
+  const me = ++PANEL_SWAP.pending;
+  const urls = __extractImgSrcsFromHTML(html);
+  await __preloadUrls(urls);
+  if (me !== PANEL_SWAP.pending) return; // a newer render won the race; drop this one
+  countyInfo.innerHTML = html;
+  if (typeof afterSwap === 'function') {
+    try { afterSwap(); } catch {}
+  }
+}
+
 let projection, path, countyShapes, countyData = {}, lastLogSeq = 0;
 let districtShapes;
 
@@ -6694,9 +6742,8 @@ function stopLivePolling(){
         }
       }
 
-      countyInfo.innerHTML = `
-        <div class="cand-list">${stack}</div>
-      `;
+      setPanelHTML(`<div class="cand-list">${stack}</div>`);
+
     }
 
 
@@ -8353,7 +8400,8 @@ Promise.all([
         }
       }
 
-      countyInfo.innerHTML = `<div class="cand-list">${stack}</div>`;
+      setPanelHTML(`<div class="cand-list">${stack}</div>`);
+
     }
 
 
@@ -8990,9 +9038,8 @@ async function getDataFromCache(){
 
       
       
-      countyInfo.innerHTML = `
-        <div class="cand-list">${stack}</div>
-      `;
+      setPanelHTML(`<div class="cand-list">${stack}</div>`);
+
     }
 
 
@@ -9089,7 +9136,8 @@ async function getDataFromCache(){
                 ${ leaderLineHTML(i, agg.total, candSrc) }
               </div>`;
           }).join("");
-          countyInfo.innerHTML = `<div class="cand-list">${stack}</div>`;
+          setPanelHTML(`<div class="cand-list">${stack}</div>`);
+
           return;
         }
 
@@ -9277,9 +9325,8 @@ async function getDataFromCache(){
       // === end no-flash block ===
 
 
-      countyInfo.innerHTML = `
-        <div class="cand-list">${stack}</div>
-      `;
+      setPanelHTML(`<div class="cand-list">${stack}</div>`);
+
     }
 
     function renderSenateSeatDetail(usps){
