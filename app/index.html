@@ -3,15 +3,16 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Counties (Hub Cache Viewer)</title>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700;800&display=swap" rel="stylesheet">
+<title>Live Data Election App</title>
+<!-- <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700;800&display=swap" rel="stylesheet"> -->
 <link rel="apple-touch-icon" sizes="180x180" href="/favicons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicons/favicon-16x16.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/favicons/android-chrome-192x192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/favicons/android-chrome-512x512.png">
-<script src="https://d3js.org/d3.v6.min.js"></script>
-<script src="https://d3js.org/topojson.v3.min.js"></script>
+<script src="../scripts/d3.v6.min.js"></script>
+<script src="../scripts/topojson.v3.min.js"></script>
+
 <style>
   :root { --bg:#ffffff; --fg:#eaf0ff; --muted:#9fb3d1; --card:#14233d; --ok:#a5f3a5; --warn:#ffd79a; }
   
@@ -429,7 +430,7 @@
 
     .leadline{
       /* placement */
-      margin: 2px 0px 14px auto;   /* closer to leader card (top=4), more space before 2nd (bottom=14) */
+      margin: 10px 0px 14px auto;   /* closer to leader card (top=4), more space before 2nd (bottom=14) */
       width: fit-content;
       text-align: right;
 
@@ -2362,12 +2363,14 @@
       background-clip: padding-box;  /* prevents anti-aliased edge glow */
     }
 
+    #mapBopBar { display: none !important; }
     
     #allButtons button[data-office="S"] { display: none !important; }
     #allButtons button[data-office="P"] { display: none !important; }
     #allButtons button[data-office="H"] { display: none !important; }
     #allButtons button[data-race="D"] { display: none !important; }
     #allButtons button[data-race="R"] { display: none !important; }
+    #allButtons button[data-race="S"] { display: none !important; }
     #allButtons button[id="menuBtn"] { display: none !important; }
     #allButtons button[id="bopBtn"] { display: none !important; }
     #allButtons button[id="pathBtn"] { display: none !important; }
@@ -2379,10 +2382,13 @@
     #allButtons button[id="nycBtn"] { display: none !important; }
     
     /* Touch: let d3-zoom own the gestures, stop page scroll/zoom jitter */
-    #map,
-    .map-shell {
-      touch-action: none;
-    }
+    /* D3 handles gestures only on the SVG */
+    #map       { touch-action: none; }
+    .map-shell { touch-action: auto; }
+
+    /* Prevent overscroll/bounce from propagating while touching the map */
+    html, body { overscroll-behavior: contain; }
+
 
     html, body {
       overscroll-behavior: contain;
@@ -2396,6 +2402,57 @@
       touch-action: auto;
     }
 
+    #lockBtn.active {
+      background:#0b5fff;
+      color:#fff;
+      border-color:#0b5fff;
+    }
+    
+    /* Hide FIRST/LAST overlay on all candidate cards */
+   
+
+    :root{
+      --cand-overlay-bottom: 12px;   /* ← tweak this number to taste */
+    }
+
+    /* change this existing rule */
+    .cand-overlay{
+      position:absolute;
+      right:10px;
+      bottom: var(--cand-overlay-bottom); /* ← was 28px */
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:8px;
+      color:#fff;
+      text-align:right;
+      text-shadow: 0 1px 2px rgba(0,0,0,.45), 0 0 2px rgba(0,0,0,0.0);
+    }
+
+    :root{
+      --header-rule-gap: .27em;        /* distance between text and red line */
+      --header-rule-thickness: 6px;    /* bar thickness */
+    }
+
+    /* Header location block */
+    #headerLocation{
+      position: relative;
+      padding-bottom: var(--header-rule-gap); /* creates the gap; text doesn't move */
+    }
+
+    /* Red rule */
+    #headerLocation::after{
+      content:"";
+      position: absolute;
+      left: 0; right: 0;
+      bottom: 0;                           /* anchor to the bottom edge */
+      height: var(--header-rule-thickness);
+      background: var(--gop, #ec1d19);
+      pointer-events: none;
+    }
+
+    /* Hide FIRST/LAST overlay on all candidate cards */
+    .cand-name { display:none !important; }
     
 </style>
 
@@ -2444,19 +2501,7 @@
     <div class="map-stack">
       <div class="map-shell">
         <svg id="map">
-          <defs>
-            <filter id="outerShadow" x="-100%" y="-100%" width="300%" height="300%">
-              <feMorphology in="SourceAlpha" operator="dilate" radius="4" result="dilated"/>
-              <feGaussianBlur in="dilated" stdDeviation="18" result="blurred"/>
-              <feComposite in="blurred" in2="SourceAlpha" operator="out" result="outer"/>
-              <feColorMatrix in="outer" type="matrix"
-                values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .85 0" result="shadow"/>
-              <feComponentTransfer in="shadow" result="shadowCurved">
-                <feFuncA type="gamma" amplitude="1" exponent="1.8" offset="0"/>
-              </feComponentTransfer>
-              <feMerge><feMergeNode in="shadowCurved"/></feMerge>
-            </filter>
-          </defs>
+
           
         </svg>
       </div>
@@ -2523,9 +2568,11 @@
       <div id="raceControls">
           <div id="allButtons" class="vertical-buttons">
             <button id="pathBtn" class="horseshoe-btn" title="Path mode">PATH</button>
-            <button data-office="P" class="active">P</button>
+            <button data-office="P">P</button>
             <button data-office="S">S</button>
-            <button data-office="G">G</button>
+            <button data-office="G" class="active">G</button>
+            <button data-office="A">A</button>
+            <button data-office="M">M</button>
             <button data-office="H">H</button>
             <button id="nycBtn" data-office="M" data-race="G" class="horseshoe-btn" title="NYC Mayor (boroughs)">NYC</button>
 
@@ -2533,6 +2580,7 @@
             <button data-race="G" class="active">GEN</button>
             <button data-race="D">DEM</button>
             <button data-race="R">GOP</button>
+            <button data-race="S">SPEC</button>
             <button id="menuBtn" class="horseshoe-btn" title="Menu / Clear">
               <span class="horseshoe-label">☰</span>
             </button>
@@ -2556,6 +2604,10 @@
             <button id="clearInkBtn" class="horseshoe-btn">
               <span class="horseshoe-label">🧽</span>
             </button>
+            <button id="lockBtn" class="horseshoe-btn" title="Lock camera (don't zoom on click)">
+              <span class="horseshoe-label">🔒</span>
+            </button>
+
 
 
           </div>
@@ -2619,7 +2671,202 @@
     
 <script>
     
+    // === Fail-once image guard → permanently redirect to other.png ===
+    const FAILED_IMG_URLS = new Set();
+    const OTHER_FALLBACK = "../images/other.png";
 
+    function normUrl(u){
+      try { return new URL(String(u || ''), document.baseURI).href; }
+      catch { return String(u || ''); }
+    }
+
+    // Learn failing URLs + fix the current element immediately
+    document.addEventListener('error', (ev) => {
+      const img = ev.target;
+      if (!(img instanceof HTMLImageElement)) return;
+      const bad = normUrl(img.currentSrc || img.src);
+      if (bad) FAILED_IMG_URLS.add(bad);
+      img.onerror = null;                     // prevent loops
+      img.dataset.fallbackApplied = '1';
+      img.src = OTHER_FALLBACK;               // immediate swap
+      ev.stopImmediatePropagation();          // keep console quiet after first
+    }, true);
+
+    // Intercept future assignments: img.src = "...";
+    (() => {
+      const d = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+      if (!d?.set) return;
+      Object.defineProperty(HTMLImageElement.prototype, 'src', {
+        configurable: true, enumerable: d.enumerable,
+        get(){ return d.get.call(this); },
+        set(v){
+          const u = normUrl(v);
+          if (FAILED_IMG_URLS.has(u)) {
+            this.dataset.fallbackApplied = '1';
+            return d.set.call(this, OTHER_FALLBACK);
+          }
+          return d.set.call(this, v);
+        }
+      });
+    })();
+
+    // Intercept setAttribute('src', "...") too
+    (() => {
+      const orig = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function(name, val){
+        if (this instanceof HTMLImageElement && String(name).toLowerCase() === 'src') {
+          const u = normUrl(val);
+          if (FAILED_IMG_URLS.has(u)) {
+            this.dataset.fallbackApplied = '1';
+            return orig.call(this, 'src', OTHER_FALLBACK);
+          }
+        }
+        return orig.call(this, name, val);
+      };
+    })();
+
+    
+    // === Card allowlist (put this near your image helpers) =================
+    // === Card allowlist ================================================
+    // === Card allowlist ================================================
+    const CARD_ALLOWLIST = new Set([
+      // --- existing key figures ---
+      'Curtis Sliwa',
+      'Andrew Cuomo',
+      'Zohran Mamdani',
+      'Winsome Earle-Sears',
+      'Mikie Sherrill',
+      'Jack Ciattarelli',
+      'Abigail Spanberger',
+      'Jason Miyares',
+      'Jay Jones',
+
+      // --- TX-18 (House Special) ---
+      'Feldon Bonner II',
+      'Amanda Edwards',
+      'Stephen Huey',
+      'Jolanda Jones',
+      'Isaiah Martin',
+      'Christian Menefee',
+      'Valencia Williams',
+      'Theodis Daniel',
+      'Ollie Knox',
+      'Carmen Montiel',
+      'Carter Page',
+      'Ronald Whitfield',
+      'Tammie Rochester',
+      'Reyna Anderson',
+      'Vince Duncan',
+      'George Foreman IV',
+    ]);
+
+
+
+
+    function allowCard(c){ return !!c && CARD_ALLOWLIST.has(String(c.name||'')); }
+    function onlyAllowed(arr){ return (arr||[]).filter(allowCard); }
+
+    // Sum shown candidates and add a single "Other" bucket with remaining votes
+    function withAllowedPlusOther(candidates, total){
+      const shown = onlyAllowed(candidates);
+      const shownVotes = shown.reduce((a,c)=> a + (c.votes || 0), 0);
+      const otherVotes = Math.max(0, (total || 0) - shownVotes);
+
+      // sort only the allow-listed candidates
+      shown.sort((a,b)=> (b.votes||0) - (a.votes||0));
+
+      // append “Other” (if present) at the end, regardless of its votes
+      if (otherVotes > 0){
+        shown.push({ name: 'Other', party: 'IND', votes: otherVotes, _isOther: true });
+      }
+      return shown;
+    }
+
+    window.SHOW_ALL_CANDIDATES = false;
+    const _orig_withAllowedPlusOther = withAllowedPlusOther;
+    window.withAllowedPlusOther = function(candidates, total){
+      if (window.SHOW_ALL_CANDIDATES) {
+        // show everyone, just sort by votes
+        return (candidates || []).slice().sort((a,b)=>(b.votes||0)-(a.votes||0));
+      }
+      // default behavior: allowlist + single “Other” bucket
+      return _orig_withAllowedPlusOther(candidates, total);
+    };
+
+
+
+    const COUNTY_Y_BIAS_FRAC = 0.18; // ~8% of viewport height upward
+
+    // Nudge NYC boroughs upward when framing them (fraction of SVG height)
+    const NYC_Y_BIAS_FRAC = 0.12;   // try 0.08–0.16 to taste
+
+    
+    let CAMERA_LOCK = false;
+
+    
+    // Only NY has an M (mayor) race in 2025
+    const MAYOR_2025_STATES = new Set(['NY']);
+    function hasMayor2025(usps){ return MAYOR_2025_STATES.has(String(usps)); }
+
+
+    // Only VA is live for A in 2025
+    const AG_2025_STATES = new Set(['VA']);
+    function hasAG2025(usps){ return AG_2025_STATES.has(String(usps)); }
+
+    
+    // Live 2025 gate: Governor (VA/NJ), AG (VA), Mayor (NYC)
+    function isLive2025(){
+      return String(YEAR) === '2025' && (
+        OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' ||
+        (OFFICE === 'H' && RACE === 'S')   // ← NEW: H specials are live
+      );
+    }
+    
+     // Live polling contexts: full 2026, plus 2025 G/A/M and House Special
+     function isLiveContext(){
+       return String(YEAR) === '2026' ||
+              (String(YEAR) === '2025' && (
+                 OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' ||
+                 (OFFICE === 'H' && RACE === 'S')
+              ));
+     }
+
+
+    function isHouse2025Special(){
+      return String(YEAR) === '2025' && OFFICE === 'H' && RACE === 'S';
+    }
+    
+    function hasAnyDistrictRowsForStatefp(fp2){
+      const p = String(fp2).padStart(2,'0');
+      for (const row of Object.values(countyData || {})){
+        const did = row && row.district_id ? String(row.district_id) : '';
+        if (did.startsWith(p)) return true;
+      }
+      return false;
+    }
+
+    
+    function statePercentInFromDistricts(statefp){
+      const rows = Object.values(countyData || {}).filter(r =>
+        r && r.district_id && String(r.district_id).startsWith(String(statefp))
+      );
+      const vals = rows
+        .map(r => r?.percent_in ?? r?.PercentIn)
+        .map(Number)
+        .filter(Number.isFinite);
+      if (!vals.length) return null;
+      return vals.reduce((a,b)=>a+b,0) / vals.length;
+    }
+
+    
+    // Helper: which states are “live” in 2025 for the current office
+    // Replace the current hasLiveState2025() with this:
+    function hasLiveState2025(usps){
+      if (OFFICE === 'A') return hasAG2025(usps);         // AG: your VA-only gate
+      if (OFFICE === 'G') return hasGovernor2025(usps);   // Governor: VA/NJ
+      if (OFFICE === 'M') return hasMayor2025(usps);      // Mayor: NY-only
+      return true;
+    }
 
     
     // ----- Path brush (click pills to "arm" a color) -----
@@ -3170,7 +3417,9 @@
     let currentStroke = null;
     let currentPoints = [];
     const strokes = [];         // (optional) if you later add undo
-    const lineGen = d3.line().curve(d3.curveBasis);
+    const lineGen = d3.line()
+      .curve(d3.curveCatmullRom.alpha(0.5))
+      .defined(d => Number.isFinite(d[0]) && Number.isFinite(d[1]));
 
 
     // PRELOAD: congressional districts for current YEAR (needed for H drilldown)
@@ -3209,12 +3458,28 @@
     window.isNoRace2026 = window.isNoRace2026 || function(usps){
       const s = String(usps);
       if (OFFICE === 'S' && String(YEAR) === '2026') return isNoSenate2026(s);
-      if (OFFICE === 'G' && String(YEAR) === '2025') return isNoGovernor2026(s);
+      if (String(YEAR) === '2025') {
+        if (OFFICE === 'A') return !hasAG2025(s);           // VA only
+        if (OFFICE === 'G') return !hasGovernor2025(s);     // VA/NJ (Gov)
+           if (OFFICE === 'M') return !hasMayor2025(s);        // NY only (Mayor)
+      }
       return false;
     };
+
+
+          
+          
+          // Only VA + NJ have gubernatorial races in 2025
+          const GOVERNOR_2025_STATES = new Set(['VA','NJ']);
+          function hasGovernor2025(usps){ return GOVERNOR_2025_STATES.has(String(usps)); }
+
     
     // Single place to control the grey you want:
     const NO_RACE_GREY = '#bfc3c8'; // pick your grey
+    
+    // NYC borough counties (Bronx, Kings, New York, Queens, Richmond)
+    const NYC_BOROUGH_FIPS = new Set(['36005','36047','36061','36081','36085']);
+
 
     
     // near: let countiesSel = null;
@@ -3243,9 +3508,17 @@
       if (OFFICE === 'S' && String(YEAR) === '2026' && isNoSenate2026(usps)) {
         return false; // not clickable this cycle
       }
-      if (OFFICE === 'G' && String(YEAR) === '2025' && isNoGovernor2026(usps)) {
-         return false; // not clickable this cycle
-       }
+      if ((OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M')
+          && String(YEAR) === '2025'
+          && !hasLiveState2025(usps)) {
+        return false; // only allowed states (VA for A) clickable
+      }
+          if (OFFICE === 'H' && String(YEAR) === '2025' && RACE === 'S') {
+           const fp = String(sd.id).padStart(2,'0');
+            return hasAnyDistrictRowsForStatefp(fp); // only clickable where we have a special
+          }
+
+
       return true;
     }
     
@@ -3356,7 +3629,7 @@
       );
     }
     
-    const COLOR_NO_DATA = "#9aa0a6"; // light grey for zero-total “no data”
+    const COLOR_NO_DATA = "#E3E3E3"; // light grey for zero-total “no data”
     function getVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
     
     const partyRowHTML = (r) => `
@@ -3726,13 +3999,16 @@
         await getDataFromCache();
 
         // --- No-flash panel refresh (reuses in-place guards you added) ---
-        if (YEAR === '2026' || (YEAR === '2025' && OFFICE === 'G')) {
-          if (NAV_LEVEL === 2 && (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G') && selectedFips) {
+        if (YEAR === '2026' || (YEAR === '2025' && (OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || (OFFICE === 'H' && RACE === 'S')))) {
+          if (NAV_LEVEL === 2 && (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M') && selectedFips) {
             // County view for P/S/G
             renderCountyPanel(selectedFips);
-          } else if (NAV_LEVEL === 1 && (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G') && selectedStateFP) {
+          } else if (NAV_LEVEL === 1 && (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M') && selectedStateFP) {
             // State view for P/S/G
             renderStatePanel(selectedStateFP);
+          } else if (NAV_LEVEL === 1 && OFFICE === 'H' && selectedStateFP) {
+                // H:S state view needs periodic refresh too
+                renderStatePanel(selectedStateFP);
           } else if (NAV_LEVEL === 0) {
                   // National view — hit your renderNationalPanel() so it updates in place
                   renderNationalPanel();
@@ -4528,22 +4804,7 @@
 
     
     function leaderLineHTML(i, total, candidates){
-      // only on the leader’s card
       if (i !== 0) return '';
-
-      // Allow in generals (historic + 2026) AND in 2026 primaries (DEM/REP)
-      const allowYearRace =
-        ((RACE === 'G') && (YEAR === '2025' || YEAR === '2026' || HIST_GEN_YEARS.has(String(YEAR)))) ||
-        ((YEAR === '2026') && (RACE === 'D' || R));
-
-      if (!allowYearRace) return '';
-
-      // Offices that can show the line:
-      // - P, S, G everywhere
-      // - H only when zoomed to a district (kept as-is)
-      const officeOK = ['P','S','G'].includes(OFFICE) || (OFFICE === 'H' && NAV_LEVEL === 2);
-      if (!officeOK) return '';
-
       const first  = candidates?.[0];
       const second = candidates?.[1];
       if (!first || !second) return '';
@@ -4559,21 +4820,26 @@
 
 
 
+
     // replace the old version
     // use party icon for S/G in 2016–2024 and 2026; and for H in 2016–2026
     function shouldUsePartyIcon(year, office){
       const y = String(year);
       const isHist = new Set(["2016","2018","2020","2022","2024"]).has(y);
-      const isPPrimary = (office === 'P' && (RACE === 'D' || RACE === 'R'));
 
-      // Always use party icons for S, G, H (all years & levels)
-      if (office === 'S' || office === 'G' || office === 'H') return true;
+      // House: keep party icons
+      if (office === 'H') return true;
 
-      // Presidential: primaries use party icons, general uses headshots
+      // Senate/Governor: show headshots in live years; icons only for historic years
+      if (office === 'S' || office === 'G' || office === 'A' || office === 'M') return isHist;
+
+      // Presidential primaries: icons; Presidential general: headshots
+      const isPPrimary = (office === 'P') && (RACE === 'D' || RACE === 'R');
       if (office === 'P') return isPPrimary;
 
       return false;
     }
+
 
     function imageSrcFor(cand){
       return shouldUsePartyIcon(YEAR, OFFICE)
@@ -4581,9 +4847,12 @@
         : imgForCandidate(cand.name);
     }
     function imageMetaFor(cand){
+      if (cand && cand._isOther) {
+        return { src: '../images/other.png', alt: 'Other' };
+      }
       const useParty = shouldUsePartyIcon(YEAR, OFFICE);
       const alt =
-        (OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'H')
+        (OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || OFFICE === 'H')
           ? 'Candidate'
           : (useParty ? (cand.party || 'Party') : cand.name);
       return {
@@ -4591,6 +4860,7 @@
         alt
       };
     }
+
 
 
     // Round to whole %; return "—" if missing
@@ -4604,15 +4874,19 @@
     function syncPercentBolt(){
       if (BOP_MODE) return hidePercentInBolt();
 
-      if (NAV_LEVEL === 1 && ['P','S','G'].includes(OFFICE) && selectedStateFP){
-        return showPercentInBoltForState(selectedStateFP);
-      }
-
+      if (NAV_LEVEL === 1){
+          if (['P','S','G','A','M'].includes(OFFICE) && selectedStateFP){
+            return showPercentInBoltForState(selectedStateFP);
+          }
+          if (OFFICE === 'H' && selectedStateFP){
+            return setPercentInBolt(statePercentInFromDistricts(selectedStateFP));
+          }
+        }
       if (NAV_LEVEL === 2){
-        if (OFFICE === 'H' && YEAR === '2026' && selectedDistrict){
+        if (OFFICE === 'H' && selectedDistrict){
           return showPercentInBoltForDistrict(selectedDistrict);
         }
-        if (['P','S','G'].includes(OFFICE) && selectedFips){
+        if (['P','S','G','A','M'].includes(OFFICE) && selectedFips){
           return showPercentInBoltForCounty(selectedFips);
         }
       }
@@ -4651,7 +4925,7 @@
       const el = document.getElementById('percentInBolt');
       if (!el) return;
 
-      if (['P','S','G'].includes(OFFICE) && NAV_LEVEL === 1){
+      if (['P','S','G','A','M'].includes(OFFICE) && NAV_LEVEL === 1){
         // Your existing logic to get the statewide % in
         const spi = findStatePercentIn(statefp);           // from the XML top line
         setPercentInBolt(spi);
@@ -4664,7 +4938,7 @@
       const el = document.getElementById('percentInBolt');
       if (!el) return;
 
-      if (['P','S','G'].includes(OFFICE) && NAV_LEVEL === 2){
+      if (['P','S','G','A','M'].includes(OFFICE) && NAV_LEVEL === 2){
         const row = countyData?.[fips];
         // Accept either `percent_in` or `PercentIn` depending on feed casing
         const rawPI = row?.percent_in ?? row?.PercentIn;
@@ -4680,7 +4954,7 @@
       if (!el) return;
 
       // Only for House districts while zoomed into a district (NAV_LEVEL === 2)
-      if (OFFICE === 'H' && YEAR === '2026' && NAV_LEVEL === 2){
+      if (OFFICE === 'H' && NAV_LEVEL === 2){
         // District rows live alongside county rows; find by district_id
         const row = Object.values(countyData || {}).find(x => x && x.district_id === did);
         // Accept either feed casing
@@ -4793,7 +5067,7 @@
       if (!yearEl || !raceEl || !locEl) return;
 
       // Map office to display label
-      const OFFICE_SHORT = { P:'Presidential', G:'Gubernatorial', S:'Senate', H:'House' };
+      const OFFICE_SHORT = { P:'Presidential', G:'Gubernatorial', S:'Senate', H:'House', A:'Attorney General', M:'Mayoral' };
 
       // BOP override text (keeps your current behavior)
       // BOP: top line shows just the office; the line between the bands shows “Balance of Power”
@@ -5030,7 +5304,8 @@ const stateLayer         = rootG.append("g"); // add this
 
 const neighborDistrictLayer = rootG.append("g"); // overlay only for H
 
-const cityLayer = rootG.append("g").attr("id","cityLayer");
+const cityLayer = rootG.append("g").attr("id","cityLayer").attr("pointer-events","none");
+
 
 function bringCitiesToFront(){
   const n = cityLayer.node();
@@ -5042,7 +5317,7 @@ function bringCitiesToFront(){
 // lon/lat, plus optional pixel nudges (dx, dy) to avoid county borders
 const CITY_INDEX = {
   NY: [
-    { name: "New York City", lon: -74.0060, lat: 40.7128, dx: 0, dy: 0 },
+
     { name: "Buffalo",       lon: -78.8784, lat: 42.8864, dx: 0, dy: 0 },
     { name: "Rochester",     lon: -77.6088, lat: 43.1566, dx: 0, dy: 0 },
     { name: "Albany",        lon: -73.7562, lat: 42.6526, dx: 0, dy: 0 },
@@ -5100,7 +5375,7 @@ const CITY_INDEX = {
     { name: "Greensboro",lon: -79.7920, lat: 36.0726, dx: 0, dy: 0 },
   ],
   VA: [
-    { name: "Virginia Beach", lon: -75.9780, lat: 36.8529, dx: 0, dy: 0 },
+
     { name: "Richmond",       lon: -77.4360, lat: 37.5407, dx: 0, dy: 0 },
     { name: "Norfolk",        lon: -76.2859, lat: 36.8508, dx: 0, dy: 0 },
   ],
@@ -5421,7 +5696,23 @@ function imgForCandidate(name){
 }
     
     
-    // Robust fallback for missing headshots → party icon (no console spam)
+    // ---- One-shot image error guards ----
+    // ---- drop this ABOVE your button handlers ----
+
+    // Per-URL + one-log fallback (from earlier message)
+    const SEEN_IMG_SRC = new Set();
+    let FIRST_IMG_ERROR_LOGGED = false;
+
+    function swapOnce(img, nextSrc){
+      if (!img || !nextSrc) return;
+      const cur = img.currentSrc || img.src || '';
+      if (SEEN_IMG_SRC.has(cur)) return;
+      SEEN_IMG_SRC.add(cur);
+      img.onerror = null;
+      img.dataset.fallbackApplied = '1';
+      img.src = nextSrc;
+    }
+
     (function installImageFallback(){
       if (window.__installedImageFallback) return;
       window.__installedImageFallback = true;
@@ -5429,19 +5720,22 @@ function imgForCandidate(name){
       document.addEventListener('error', (ev) => {
         const img = ev.target;
         if (!(img instanceof HTMLImageElement)) return;
-        if (img.dataset?.fallbackApplied === '1') return;
 
-        // If it's not one of the known party badges (dem/rep/ind/lib/grn/npa), treat as a headshot
-        const isHeadshot = /\/images\/(?!dem|rep|ind|lib|grn|npa)[a-z0-9_-]+\.png$/i.test(img.src);
-
-        if (isHeadshot) {
-          const party = (img.dataset?.party || 'IND').toUpperCase();
-          img.dataset.fallbackApplied = '1';     // avoid loops
-          try { img.src = imgForParty(party); }  // swap to party icon
-          catch { img.src = imgForParty('IND'); }
+        // one-time global log; suppress the rest
+        if (!FIRST_IMG_ERROR_LOGGED) {
+          FIRST_IMG_ERROR_LOGGED = true;
+          console.warn('[img] missing headshot → swapping to party icon once');
+        } else {
+          ev.stopImmediatePropagation();
         }
-      }, true); // capture phase catches resource errors
+
+        const party = (img.dataset?.party || 'IND').toUpperCase();
+        try { swapOnce(img, imgForParty(party)); }
+        catch { swapOnce(img, imgForParty('IND')); }
+      }, true);
     })();
+
+
 
     
     
@@ -5642,6 +5936,8 @@ const HIST_BASE = window.HIST_BASE || '../HistoricData'; // adjust '../' as need
 let zoom;
 let zoomToFeature = () => {};
 let focusStateByPrefix = () => {};
+let zoomToNYCBoroughs = () => {};   // placeholder so outer code can call it
+
 
 let focusHouseStateByPrefix = () => {};
 
@@ -5654,6 +5950,29 @@ function zoomOutOne(){
     updateHeaderTitle();
     hidePercentInBolt();    
     const sf = statesFeatures.find(s => String(s.id).padStart(2,"0") === selectedStateFP);
+    if (OFFICE === 'M' && YEAR === '2025' && sf) {
+      // rebuild NY counties (your existing step)
+      focusStateByPrefix(selectedStateFP, sf);
+      colorizeInstant(true);
+
+      // 1) show the statewide panel immediately…
+      renderStatePanel(selectedStateFP);
+      syncPercentBolt();
+
+      // 2) …then zoom to the boroughs *and* re-render once the zoom finishes
+      const before = d3.zoomTransform(svg.node());
+      zoomToNYCBoroughs(); // runs a named transition "zoomNYC"
+
+      // schedule a post-zoom re-render (belt & suspenders)
+      svg.transition("zoomNYC")
+         .on("end", () => {
+           renderStatePanel(selectedStateFP);
+           syncPercentBolt();
+         });
+
+      return; // don't fall through to whole-state framing
+    }
+
 
     // House: return to the *state's districts* view (not national)
     if (OFFICE === "H"){
@@ -5690,7 +6009,7 @@ function zoomOutOne(){
     hidePercentInBolt();
 
     stateLayer.style("pointer-events","auto");
-    if (OFFICE === "P" || OFFICE === "G" || OFFICE === "S") {
+    if (["P","G","S","A","M"].includes(OFFICE)) {
          drawShapes();            // builds national state polygons right away
          colorizeInstant(true);   // paints states in winner color
          // (optional) make sure states sit above anything lingering
@@ -5837,6 +6156,7 @@ function stopLivePolling(){
       "2020": "/topojson/tl_2019_us_cd116.json",       // 117th uses same geometry
       "2022": "/topojson/cb_2023_us_cd118_5m.json",    // 118th
       "2024": "/topojson/cb_2024_us_cd119_500k.json",   // 119th
+      "2025": "/topojson/cb_2024_us_cd119_500k.json",
       "2026": "/topojson/cb_2024_us_cd119_500k.json"    // 120th
     };
 
@@ -6046,7 +6366,7 @@ function stopLivePolling(){
     function renderNationalPanel(){
       // Force S @ national to General in 2026 so we show the rollup (not candidate cards)
 
-      if (YEAR === '2025' && OFFICE === 'G') {
+      if (String(YEAR) === '2025' && (OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M')) {
         // Clear out any left-panel or tally DOM
         const countyInfo = document.getElementById('countyInfo');
         if (countyInfo) countyInfo.innerHTML = '';
@@ -6067,12 +6387,15 @@ function stopLivePolling(){
         countyInfo.innerHTML = '';
         return;
       }
-      if (YEAR === '2025' && NAV_LEVEL === 0 && OFFICE === 'G' && (RACE === 'D' || RACE === 'R')) {
+      if (YEAR === '2025' && NAV_LEVEL === 0 && OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' && (RACE === 'D' || RACE === 'R')) {
         countyInfo.innerHTML = '';
         return;
       }
 
       const agg = aggregateNationalCandidates();
+      const allowed = withAllowedPlusOther(agg.candidates, agg.total);
+
+       if (!allowed.length){ countyInfo.innerHTML = ''; return; }
       const fmt = n => Number(n || 0).toLocaleString('en-US');
 
       const first  = agg.candidates?.[0] || {};
@@ -6082,7 +6405,7 @@ function stopLivePolling(){
       const leadText  = `${leadPct >= 0 ? '' : ''}${leadPct.toFixed(1)}% ${fmt(leadVotes)} AHEAD`;
 
       // GOVERNOR @ national level (2026): tally rollup
-      if (OFFICE === 'G' && NAV_LEVEL === 0){
+      if (OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' && NAV_LEVEL === 0){
         const rows = aggregateGovernorCalledWinnersNational();
         const fmt  = n => Number(n || 0).toLocaleString('en-US');
         const html = rows.length
@@ -6249,14 +6572,14 @@ function stopLivePolling(){
       }
 
       // Candidate cards (non-tally path)
-      const stack = agg.candidates.map((c, i) => {
+      const stack = allowed.map((c, i) => {
         const pct = agg.total ? (100 * (c.votes || 0) / agg.total) : 0;
         const img = (OFFICE === 'S') ? imgForParty(c.party)
-          : (OFFICE === 'G') ? imgForParty(c.party)
+          : (OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M') ? imgForParty(c.party)
           : (OFFICE === 'H') ? imgForParty(c.party)
           : (shouldUsePartyIcon(YEAR, OFFICE) ? imgForParty(c.party) : imgForCandidate(c.name));
 
-        const alt = (OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'H') ? 'Candidate'
+        const alt = (OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || OFFICE === 'H') ? 'Candidate'
           : (shouldUsePartyIcon(YEAR, OFFICE) ? (c.party || 'Party') : c.name);
 
         const card = `
@@ -6265,7 +6588,7 @@ function stopLivePolling(){
               ${(() => { const {src, alt} = imageMetaFor(c); return `
                 <img src="${src}" alt="${alt}" data-party="${c.party || ''}">
               `; })()}
-              ${ (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'H')
+              ${ (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || OFFICE === 'H')
                   ? (() => {
                       const {first,last} = splitName(c.name);
                       const pClass = partyClass(c.party);
@@ -6285,7 +6608,7 @@ function stopLivePolling(){
                 <div class="votes">${fmt(c.votes)}</div>
               </div>
             </div>
-            ${ leaderLineHTML(i, agg.total, agg.candidates) }
+            ${ leaderLineHTML(i, agg.total, allowed) }
           </div>`;
         return card;
       }).join("");
@@ -6296,7 +6619,7 @@ function stopLivePolling(){
         : "";
 
       // No-flash in-place update for national candidate cards (when using card UI)
-      if ((YEAR === '2026' || (YEAR === '2025' && OFFICE === 'G')) && NAV_LEVEL === 0) {
+      if ((YEAR === '2026' || (YEAR === '2025' && OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M')) && NAV_LEVEL === 0) {
         const list = countyInfo.querySelector('.cand-list');
         if (list && list.children.length) {
           const ensureItem = (idx) => {
@@ -6322,8 +6645,8 @@ function stopLivePolling(){
             return item;
           };
 
-          for (let i = 0; i < agg.candidates.length; i++) {
-            const c = agg.candidates[i];
+          for (let i = 0; i < allowed.length; i++) {
+             const c = allowed[i];
             const pct = agg.total ? (100 * (c.votes || 0) / agg.total) : 0;
             const item = ensureItem(i);
             const card = item.querySelector('.cand-card');
@@ -6356,7 +6679,7 @@ function stopLivePolling(){
             const votesEl = card.querySelector('.cand-overlay .votes');
             if (votesEl) votesEl.textContent = Number(c.votes || 0).toLocaleString('en-US');
 
-            const newLeadHTML = leaderLineHTML(i, agg.total, agg.candidates);
+            const newLeadHTML = leaderLineHTML(i, agg.total, allowed);
             const existingLead = item.querySelector('.leadline');
             if (existingLead) {
               existingLead.outerHTML = newLeadHTML;
@@ -6364,7 +6687,7 @@ function stopLivePolling(){
               item.insertAdjacentHTML('beforeend', newLeadHTML);
             }
           }
-          while (list.children.length > agg.candidates.length) {
+          while (list.children.length > allowed.length) {
             list.removeChild(list.lastElementChild);
           }
           return;
@@ -6487,7 +6810,7 @@ function stopLivePolling(){
       // - SOLID full color if the *state race* is Called
       // - DIMMED leader color if not Called (but votes exist)
       // - GREY if all votes are zero
-      if (OFFICE === "P" || OFFICE === "G" || OFFICE === "S") {
+      if (["P","G","S","A","M"].includes(OFFICE)) {
         const { status, winnerParty } = getStateCall(prefix);
         const agg = aggregateStateCandidates(prefix);
         const hasVotes = (agg.total || 0) > 0 && (agg.candidates?.length || 0) > 0;
@@ -6535,8 +6858,8 @@ function stopLivePolling(){
 // TopoJSON from CDN (static)
 // TopoJSON from CDN (static)
 Promise.all([
-  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json"),
-  d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json")
+  d3.json("../scripts/states-10m.json"),
+  d3.json("../topojson/cb_2018_us_county_500k.json")
 ]).then(async ([stTopo, ctTopo])=>{
   updateActiveBadge();
 
@@ -6552,32 +6875,56 @@ Promise.all([
   let rafId = null;
   let rafCity = null;
 
+    // Pinch stabilization
+    let PINCH_ACTIVE = false;
+    let PINCH_BASE_K = 1;
+    let PINCH_START_DIST = 0;
+    const PINCH_EPS_PX = 6;   // distance change threshold before we allow zoom
+
+  
   // Build zoom that still allows wheel/dblclick/pinch while in pen mode
   zoom = d3.zoom()
-    .scaleExtent([1, 24])
+    .clickDistance(6)
+    .scaleExtent([1, 62])
     .filter((event) => {
+      // Do NOT call preventDefault here; it suppresses synthetic click events on mobile.
       if (document.body.classList.contains('path-mode')) return false;
 
+      // When not in "pen" mode, allow all standard zoom interactions.
       if (inkMode !== "pen") return true;
 
-      const t = event?.type;
-      if (t === "wheel") return true;
-      if (t === "dblclick") return true;
-
-      // Touch: if 2+ fingers, allow d3-zoom to handle (pinch AND two-finger pan)
-      const isMultiTouch = !!(event && event.touches && event.touches.length > 1);
-      if (isMultiTouch) return true;
-
-      return false; // one-finger drags stay in pen mode
+      // In pen mode: allow wheel, dblclick, and pinch (2+ touches). Single-finger taps should click.
+      if (event.type === "wheel" || event.type === "dblclick") return true;
+      return (event.touches?.length || 0) >= 2;
     })
-
     .on("zoom", (event) => {
-      currentZoomK = event.transform.k;
-      rootG.attr("transform", event.transform);
+      // If a two-finger gesture just landed, hold scale steady until fingers move.
+      if (PINCH_ACTIVE && event?.sourceEvent?.touches?.length >= 2) {
+        const tchs = event.sourceEvent.touches;
+        const dx = tchs[0].clientX - tchs[1].clientX;
+        const dy = tchs[0].clientY - tchs[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const moved = Math.abs(dist - PINCH_START_DIST) > PINCH_EPS_PX;
+        if (!moved) {
+          // freeze scale at the baseline; keep translating as usual
+          const frozen = d3.zoomIdentity
+            .translate(event.transform.x, event.transform.y)
+            .scale(PINCH_BASE_K);
+          currentZoomK = PINCH_BASE_K;
+          rootG.attr("transform", frozen);
+        } else {
+          currentZoomK = event.transform.k;
+          rootG.attr("transform", event.transform);
+        }
+      } else {
+        currentZoomK = event.transform.k;
+        rootG.attr("transform", event.transform);
+      }
+
+     
 
       cityLayer.attr("display", (currentZoomK < CITY_MIN_K || NAV_LEVEL === 0) ? "none" : null);
-      
-      // keep any effects inverse-scaled (your blur/grow pattern)
+
       if (rafId == null) {
         const k = event.transform.k;
         rafId = requestAnimationFrame(() => {
@@ -6592,51 +6939,70 @@ Promise.all([
           rafCity = null;
         });
       }
+
       // keep pen strokes constant width on screen
       d3.select("#inkLayer").selectAll(".pen-stroke")
         .attr("stroke-width", function(){ return this.baseWidth / currentZoomK; });
     })
-    .on("start", () => { IS_ZOOMING = true; })
-    .on("end",   () => {
+    .on("start", (event) => {
+      IS_ZOOMING = true;
+      const tchs = event?.sourceEvent?.touches;
+      if (tchs && tchs.length >= 2) {
+        const dx = tchs[0].clientX - tchs[1].clientX;
+        const dy = tchs[0].clientY - tchs[1].clientY;
+        PINCH_ACTIVE = true;
+        PINCH_BASE_K = d3.zoomTransform(svg.node()).k;
+        PINCH_START_DIST = Math.hypot(dx, dy);
+      }
+    })
+    .on("end",   (event) => {
       IS_ZOOMING = false;
+      PINCH_ACTIVE = false;
       if (PAINT_DEFERRED) { PAINT_DEFERRED = false; colorizeInstant(); }
       updateCityLabels();
     });
 
-  d3.select("#map")
-    .call(zoom)
-    // --- Touch: double-tap zoom (in); two-finger double-tap zoom (out)
-    (function addDoubleTapZoom(){
-      let lastTap = 0;
-      svg.on("pointerdown.doubletap", (e) => {
-        if (e.pointerType !== 'touch') return;
-        if (document.body.classList.contains('path-mode')) return; // off in Path
-        if (inkMode === 'pen') return; // don't steal taps from pen
+  // ✅ bind zoom to the SVG — end the chain here
+  svg.call(zoom);
 
-        const now = performance.now();
-        const dt  = now - lastTap;
-        lastTap = now;
+  (function addDoubleTapZoom(){
+    let lastTap = 0;
+    let lastPt  = [0, 0];
 
-        if (dt > 0 && dt < 300) {
-          const p = d3.pointer(e, svg.node());
-          const fingers = (e.touches?.length || 1);
-          const factor  = fingers >= 2 ? 1/1.6 : 1.6;  // 2-finger = zoom OUT
-          svg.transition().duration(250).call(zoom.scaleBy, factor, p);
-          e.preventDefault(); e.stopPropagation();
-        }
-      }, { passive:false });
-    })();
+    svg.on("pointerdown.doubletap", (e) => {
+      if (e.pointerType !== 'touch' || !e.isPrimary) return; // ignore second finger
+      if (document.body.classList.contains('path-mode')) return;
+      if (inkMode === 'pen') return;
 
-    .call(zoom.transform, INITIAL_VIEW);
+      const now = performance.now();
+      const pt  = d3.pointer(e, svg.node());
+      const dt  = now - lastTap;
+      const dist = Math.hypot(pt[0] - lastPt[0], pt[1] - lastPt[1]);
 
-    let __suppressNextClick = false;
-    document.getElementById('map')?.addEventListener('click', (e) => {
-      if (inkMode === 'pen' || __suppressNextClick) {
-        e.preventDefault();
-        e.stopPropagation();
-        __suppressNextClick = false;  // consume one click
+      if (dt > 0 && dt < 300 && dist < 18) {
+        // single-finger double‑tap → zoom in (d3-zoom already supports dblclick on desktop)
+        svg.transition().duration(250).call(zoom.scaleBy, 1.6, pt);
+        e.preventDefault(); e.stopPropagation();
       }
-    }, true); // capture phase
+
+      lastTap = now;
+      lastPt  = pt;
+    });
+  })();
+
+
+  // ✅ apply the initial transform as a separate statement (no leading dot)
+  svg.call(zoom.transform, INITIAL_VIEW);
+
+  // Optional: swallow clicks right after a pen tap so map doesn't misfire
+  let __suppressNextClick = false;
+  document.getElementById('map')?.addEventListener('click', (e) => {
+    if (inkMode === 'pen' || __suppressNextClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      __suppressNextClick = false;  // consume one click
+    }
+  }, true); // capture phase
 
     
     // tap-vs-drag threshold for pen
@@ -6652,6 +7018,13 @@ Promise.all([
       });
 
       // pointerdown → startInk (REPLACE your current startInk)
+      // --- Add near your pen globals ---
+      const SEGMENT_PX = 2; // minimum on-screen pixels between samples
+      let inkRAF = null;
+      let inkT = null, inkBBox = null, kAtStart = 1;
+      let lastWorld = null;
+
+      // REPLACE your startInk
       function startInk(e){
         if (inkMode !== 'pen') return;
         e.preventDefault(); e.stopPropagation();
@@ -6659,13 +7032,23 @@ Promise.all([
         drawing = true;
         didDrag = false;
 
+        // Capture pointer so moves don’t get lost if you slip off the SVG
+        try { svg.node().setPointerCapture(e.pointerId); } catch {}
+
+        // Cache transform & bbox ONCE per stroke
+        inkT   = d3.zoomTransform(svg.node());
+        kAtStart = inkT.k;
+        inkBBox = svg.node().getBoundingClientRect();
+
         const [sx, sy] = d3.pointer(e, svg.node());
         startX = sx; startY = sy;
 
-        const t = d3.zoomTransform(svg.node());
-        const [x, y] = t.invert([sx, sy]);
+        // World coord at start
+        const [x0, y0] = inkT.invert([sx, sy]);
 
-        currentPoints = [[x, y]];
+        currentPoints = [[x0, y0]];
+        lastWorld     = [x0, y0];
+
         currentStroke = inkLayer.append("path")
           .attr("class", "pen-stroke")
           .attr("fill", "none")
@@ -6674,16 +7057,88 @@ Promise.all([
           .attr("stroke-linejoin", "round")
           .datum(currentPoints);
 
-        // baseWidth stays constant; rendered width = baseWidth / currentZoomK
-        currentStroke.node().baseWidth = 3.5;
+        currentStroke.node().baseWidth = 3.5; // keep across zoom
         currentStroke
           .attr("stroke-width", 3.5 / currentZoomK)
           .attr("d", lineGen(currentPoints));
 
         strokes.push(currentStroke);
+
         svg.on("pointermove.ink", inkMove);
         svg.on("pointerup.ink pointerleave.ink", endInk);
       }
+
+      // REPLACE your inkMove with a coalesced+RAF version
+      function inkMove(e){
+        if (!drawing || inkMode !== 'pen') return;
+
+        const [sx, sy] = d3.pointer(e, svg.node());
+        const dx = sx - startX, dy = sy - startY;
+        if (!didDrag && (dx*dx + dy*dy) >= (MIN_DRAG_PX*MIN_DRAG_PX)) didDrag = true;
+
+        // Gather coalesced (higher resolution) events when available
+        const events = (typeof e.getCoalescedEvents === 'function')
+          ? e.getCoalescedEvents()
+          : [e];
+
+        // Convert client→svg→world quickly using cached bbox/transform
+        for (const ev of events){
+          // For coalesced events, use clientX/clientY (pointer() only uses the last event)
+          const cx = ev.clientX ?? e.clientX;
+          const cy = ev.clientY ?? e.clientY;
+          const sx2 = cx - inkBBox.left;
+          const sy2 = cy - inkBBox.top;
+
+          const [wx, wy] = inkT.invert([sx2, sy2]);
+
+          // Downsample by on-screen distance (≈ SEGMENT_PX)
+          if (!lastWorld) {
+            currentPoints.push([wx, wy]);
+            lastWorld = [wx, wy];
+          } else {
+            const dxw = (wx - lastWorld[0]) * kAtStart; // scale to screen px
+            const dyw = (wy - lastWorld[1]) * kAtStart;
+            if ((dxw*dxw + dyw*dyw) >= (SEGMENT_PX*SEGMENT_PX)) {
+              currentPoints.push([wx, wy]);
+              lastWorld = [wx, wy];
+            }
+          }
+        }
+
+        // Draw path at most once per frame
+        if (inkRAF == null){
+          inkRAF = requestAnimationFrame(() => {
+            inkRAF = null;
+            if (currentStroke) currentStroke.attr("d", lineGen(currentPoints));
+          });
+        }
+
+        e.preventDefault(); e.stopPropagation();
+      }
+
+      // REPLACE your endInk (adds releasePointerCapture + keeps your tap logic)
+      function endInk(e){
+        if (inkMode !== 'pen') return;
+
+        if (!didDrag) {
+          // Tap: don’t leave a dot, and swallow the ensuing click
+          try { currentStroke?.remove(); } catch {}
+          __suppressNextClick = true;
+          setTimeout(() => { __suppressNextClick = false; }, 0);
+        }
+
+        drawing = false;
+        lastWorld = null;
+        currentStroke = null;
+        currentPoints = [];
+        svg.on("pointermove.ink", null);
+        svg.on("pointerup.ink pointerleave.ink", null);
+
+        try { svg.node().releasePointerCapture(e.pointerId); } catch {}
+
+        e.preventDefault(); e.stopPropagation();
+      }
+
 
       // pointermove → inkMove (ADD/REPLACE to include threshold)
       function inkMove(e){
@@ -6725,7 +7180,13 @@ Promise.all([
       }
 
       
-  zoomToFeature = function(feature, cap = 8){
+      zoomToFeature = function(feature, cap = 8, yBiasPx = 0){
+      if (CAMERA_LOCK) {                    // ← NEW
+        // still run any post-zoom housekeeping that doesn't move the camera
+        if (PAINT_DEFERRED) { PAINT_DEFERRED = false; colorizeInstant(); }
+        updateCityLabels();
+        return;
+      }
     const b = path.bounds(feature),
           dx = b[1][0] - b[0][0],
           dy = b[1][1] - b[0][1],
@@ -6733,8 +7194,8 @@ Promise.all([
           y  = (b[0][1] + b[1][1]) / 2,
           scale = Math.min(cap, 0.9 / Math.max(dx / (+svg.attr("width")||1),
                                                dy / (+svg.attr("height")||1))),
-          translate = [(+svg.attr("width")/2) - scale * x,
-                       (+svg.attr("height")/2) - scale * y];
+               translate = [(+svg.attr("width")/2) - scale * x,
+                                   ((+svg.attr("height")||1)/2 + yBiasPx) - scale * y];
 
     const target = d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale);
 
@@ -6749,6 +7210,48 @@ Promise.all([
          updateCityLabels();
        });
 };
+
+
+  // Zoom to a bounding box (array [[x0,y0],[x1,y1]])
+  function zoomToBBox(b, cap = 22){
+      if (CAMERA_LOCK) {                    // ← NEW
+        if (PAINT_DEFERRED) { PAINT_DEFERRED = false; colorizeInstant(); }
+        return;
+      }
+
+    const dx = b[1][0] - b[0][0];
+    const dy = b[1][1] - b[0][1];
+    const x  = (b[0][0] + b[1][0]) / 2;
+    const y  = (b[0][1] + b[1][1]) / 2;
+    const scale = Math.min(cap, 0.98 / Math.max(dx / (+svg.attr("width")||1),
+                                               dy / (+svg.attr("height")||1)));
+    const translate = [(+svg.attr("width")/2) - scale * x,
+                       (+svg.attr("height")/2) - scale * y];
+    const target = d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale);
+    svg.interrupt();
+    svg.transition("zoomNYC")
+       .duration(600)
+       .ease(d3.easeCubicInOut)
+       .call(zoom.transform, target)
+       .on("end", () => { if (PAINT_DEFERRED) { PAINT_DEFERRED = false; colorizeInstant(); } });
+  }
+
+  // Zoom to the combined bounds of the 5 NYC borough county shapes
+  // Zoom to the combined bounds of the 5 NYC borough county shapes (with upward nudge)
+  zoomToNYCBoroughs = function(){
+    const ids = new Set(['36005','36047','36061','36081','36085']); // Bronx, Kings, NY, Queens, Richmond
+    const feats = (countyShapes || []).filter(c => ids.has(String(c.id).padStart(5,'0')));
+    if (!feats.length) return;
+
+    const fc = { type:'FeatureCollection', features: feats };
+
+    // convert the bias fraction into actual pixels of the current SVG height
+    const h = (+d3.select('#map').attr('height') || 0);
+    const yBiasPx = -NYC_Y_BIAS_FRAC * h;  // negative = nudge view upward
+
+    // aim tight (cap ~22) and apply the vertical bias
+    zoomToFeature(fc, 22, yBiasPx);
+  };
 
 
 
@@ -6773,7 +7276,32 @@ Promise.all([
   window.addEventListener("resize", ()=>{ resizeMap(); if (countiesSel) colorizeInstant(); });
   resizeMap();
 
-  countyShapes = topojson.feature(ctTopo, ctTopo.objects.counties).features;
+  // counties: handle TopoJSON (unknown object name) or plain GeoJSON
+  let countyFeatures = [];
+  if (ctTopo && ctTopo.type === "Topology") {
+    const countiesObj =
+      ctTopo.objects?.counties ||
+      ctTopo.objects?.cb_2018_us_county_500k ||
+      Object.values(ctTopo.objects || {})[0];   // last resort
+    if (!countiesObj) throw new Error("No county object found in TopoJSON");
+    countyFeatures = topojson.feature(ctTopo, countiesObj).features;
+  } else {
+    // GeoJSON fallback
+    countyFeatures = (ctTopo && ctTopo.features) ? ctTopo.features : [];
+  }
+
+  // normalize .id so downstream code can use 5-digit FIPS
+  countyFeatures.forEach(f => {
+    const geoid =
+      f.properties?.GEOID ??
+      (f.properties?.STATEFP && f.properties?.COUNTYFP
+        ? String(f.properties.STATEFP) + String(f.properties.COUNTYFP)
+        : f.id);
+    f.id = String(geoid).padStart(5, "0");
+  });
+
+  countyShapes = countyFeatures;
+
   
   statesFeatures = topojson.feature(stTopo, stTopo.objects.states).features;
 
@@ -6912,7 +7440,7 @@ Promise.all([
   }
   function drawNeighborStatesOverlay(selectedFeature){
     // Only show the overlay in P/S/G races
-    if (!["P","S","G"].includes(OFFICE)) {
+    if (!["P","S","G","A","M"].includes(OFFICE)) {
       neighborStateLayer.selectAll("path").remove();
       return;
     }
@@ -6920,7 +7448,8 @@ Promise.all([
 
     const selId = selectedFeature.id;
     const isSen2026 = (OFFICE === "S" && String(YEAR) === "2026");
-    const isGov2026 = (OFFICE === "G" && String(YEAR) === "2025");
+      // 2025 “live” offices are G, A, M; use your existing hasLiveState2025()
+    const isLive2025Office = (String(YEAR) === "2025" && ["G","A","M"].includes(OFFICE));
 
     neighborStateLayer
       .selectAll("path.neighbor-state")
@@ -6937,7 +7466,7 @@ Promise.all([
 
           // Grey neighbors with no election (S-2026 or G-2026)
           if ((isSen2026 && isNoSenate2026(usps)) ||
-              (isGov2026 && isNoGovernor2026(usps))) {
+              (isLive2025Office && !hasLiveState2025(usps))) {
             return NO_RACE_GREY;
           }
 
@@ -6959,8 +7488,8 @@ Promise.all([
           const usps =
             d.usps || d.properties?.usps || d.properties?.STUSPS ||
             USPS_BY_STATEFP?.[String(d.id).padStart(2,"0")];
-          const block = (isSen2026 && isNoSenate2026(usps)) ||
-                        (isGov2026 && isNoGovernor2026(usps));
+            const block = (isSen2026 && isNoSenate2026(usps)) ||
+                           (isLive2025Office && !hasLiveState2025(usps));
           return block ? "none" : "auto";
         })
         .style("cursor", d => {
@@ -6968,8 +7497,8 @@ Promise.all([
           const usps =
             d.usps || d.properties?.usps || d.properties?.STUSPS ||
             USPS_BY_STATEFP?.[String(d.id).padStart(2,"0")];
-          const block = (isSen2026 && isNoSenate2026(usps)) ||
-                        (isGov2026 && isNoGovernor2026(usps));
+            const block = (isSen2026 && isNoSenate2026(usps)) ||
+                           (isLive2025Office && !hasLiveState2025(usps));
           return block ? "default" : "pointer";
         })
         .on("click", function (event, d) {
@@ -6980,7 +7509,7 @@ Promise.all([
             USPS_BY_STATEFP?.[String(d.id).padStart(2,"0")];
           // block drill for S/G-2026 no-election neighbors
           if ((isSen2026 && isNoSenate2026(usps)) ||
-              (isGov2026 && isNoGovernor2026(usps))) return;
+                (isLive2025Office && !hasLiveState2025(usps))) return;
 
           // behave like clicking a state: drill into that state's counties
           clickedState(event, d);
@@ -7066,7 +7595,7 @@ Promise.all([
           .attr("fill", "#fff")
           .attr("fill-opacity", 0)
           .attr("stroke", "#fff")                 // was "#fff"
-          .attr("stroke-width", 16)               // was 0.5
+          .attr("stroke-width", 0.5)               // was 0.5
           .attr("vector-effect", "non-scaling-stroke")
           .style("pointer-events", sd => isStateClickable(sd) ? "auto" : "none")
           .style("cursor",        sd => isStateClickable(sd) ? "pointer" : "default")
@@ -7124,7 +7653,13 @@ Promise.all([
           const usps = d.usps || d.properties?.usps || d.properties?.STUSPS || USPS_BY_STATEFP?.[String(d.id).padStart(2,"0")];
           if (isNoSenate2026(usps)) return NO_RACE_GREY;   // force grey for S 2026 no-race states
           if (OFFICE === 'S' && YEAR === '2026' && isNoSenate2026(usps)) return NO_RACE_GREY;
-           if (OFFICE === 'G' && YEAR === '2026' && isNoGovernor2026(usps)) return NO_RACE_GREY;
+          if ((OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M')
+              && String(YEAR) === '2025'
+              && !hasLiveState2025(usps)) {
+            return NO_RACE_GREY;
+          }
+
+
 
           return fillForState(d);                           // existing logic
         })
@@ -7141,7 +7676,7 @@ Promise.all([
             .attr("fill", "#fff")
             .attr("fill-opacity", 0)
             .attr("stroke", "#fff")                 // was "#fff"
-            .attr("stroke-width", 16)               // was 0.5
+            .attr("stroke-width", 0.5)               // was 0.5
             .attr("vector-effect", "non-scaling-stroke")
             .style("pointer-events", sd => isStateClickable(sd) ? "auto" : "none")
             .style("cursor",        sd => isStateClickable(sd) ? "pointer" : "default")
@@ -7223,7 +7758,7 @@ Promise.all([
        countiesSel = countyLayer.selectAll("path.county");
 
     // Keep your overlay logic as-is, but make sure it redraws:
-    if (["P","S","G"].includes(OFFICE)) {
+    if (["P","S","G","A","M"].includes(OFFICE)) {
       drawNeighborStatesOverlay(sd);
     } else {
       neighborStateLayer.selectAll("path").remove();
@@ -7233,7 +7768,7 @@ Promise.all([
       .data([sd]).join("path")
         .attr("d", path)
         .attr("fill", "#fff")
-        .attr("filter", "url(#outerShadow)");
+        .attr("filter", OFFICE === 'M' ? null : "url(#outerShadow)");
 
     activeStateOutline.selectAll("path")
       .data([sd]).join("path")
@@ -7326,7 +7861,10 @@ Promise.all([
   function clickedState(event, sd){
     const prefix = String(sd.id).padStart(2,"0");
     const usps   = sd.usps || sd.properties?.STUSPS || USPS_BY_STATEFP?.[prefix];
-    
+    if (isLive2025()){
+        countyData = {};                 // no stale paint
+        colorizeInstant(true);           // forces neutral/grey until live arrives
+    }
     if (OFFICE === 'S' && String(YEAR) === '2026' && isNoSenate2026(usps)) {
        return;
      }
@@ -7346,10 +7884,24 @@ Promise.all([
       focusStateByPrefix(prefix, sd);
     }
 
-    zoomToFeature(sd, 8);
+    // For 2025 Mayor (M), clicking NY should zoom to the 5 boroughs
+    const uspsClicked =
+      sd.usps || sd.properties?.STUSPS || USPS_BY_STATEFP?.[prefix];
+
+    if (OFFICE === 'M' && YEAR === '2025' && uspsClicked === 'NY') {
+      // counties are already built by focusStateByPrefix; zoom to just the borough cluster
+      setTimeout(zoomToNYCBoroughs, 0);
+    } else {
+      zoomToFeature(sd, 8);
+    }
+
     renderStatePanel(prefix);
     updateHeaderTitle();
     syncPercentBolt();
+    if (isLive2025()) {
+        // Fire and forget; getDataFromCache already repaints when done
+        try { getDataFromCache(); } catch {}
+    }
   }
 
   
@@ -7368,6 +7920,11 @@ Promise.all([
     .querySelectorAll('#allButtons button[data-office], #allButtons button[data-race]')
     .forEach(btn => {
       btn.onclick = async () => {
+          if (btn.dataset.office === 'M' && YEAR !== '2025') {
+                 const y2025 = document.querySelector('#yearButtons button[data-year="2025"]');
+                 if (y2025 && !y2025.classList.contains('active')) y2025.click();
+                 YEAR = '2025';
+               }
           if (btn.dataset.office) {
             // Always drop any leftover seat-detail so polling can't revive it
             window._bopSeatView = null;
@@ -7419,8 +7976,8 @@ Promise.all([
         syncPercentBolt();
         onOfficeOrModeChange();
         if (
-                  ['P','S','G'].includes(OFFICE) &&
-                  ['P','S','G'].includes(prevOffice) &&
+                  ['P','S','G','A','M'].includes(OFFICE) &&
+                  ['P','S','G','A','M'].includes(prevOffice) &&
                   OFFICE !== prevOffice &&
                   NAV_LEVEL >= 1                      // ⟵ was === 2; now includes state AND county
                 ) {
@@ -7466,6 +8023,7 @@ Promise.all([
           updateHeaderTitle();
           onOfficeOrModeChange();
                  updateMapBopBarHouse();
+                 if (isLiveContext()) startLivePolling(); else stopLivePolling();
           return;   // ← done (don’t fall through)
         }
 
@@ -7491,6 +8049,7 @@ Promise.all([
           syncPercentBolt();
           onOfficeOrModeChange();
                 updateMapBopBarHouse();
+                if (isLiveContext()) startLivePolling(); else stopLivePolling();
           return;   // ← done
         }
 
@@ -7550,6 +8109,15 @@ Promise.all([
     svg.style("cursor", inkMode === "pen" ? "crosshair" : "grab");
   });
 
+  const lockBtn = document.getElementById("lockBtn");
+  lockBtn?.addEventListener("click", () => {
+    CAMERA_LOCK = !CAMERA_LOCK;
+    lockBtn.classList.toggle("active", CAMERA_LOCK);
+    lockBtn.title = CAMERA_LOCK
+      ? "Camera locked — clicks won't zoom"
+      : "Lock camera (don't zoom on click)";
+  });
+
   
   
   // ...
@@ -7596,7 +8164,8 @@ Promise.all([
       }
 
       // Optional: keep/stop polling based on year
-      if (YEAR === "2026") startLivePolling?.(); else stopLivePolling?.();
+      if (isLiveContext()) startLivePolling?.(); else stopLivePolling?.();
+
     };
   });
 
@@ -7610,7 +8179,7 @@ Promise.all([
       renderNationalPanel();
     }
   });
-  if (YEAR === "2026") startLivePolling();
+  if (isLiveContext()) startLivePolling();
 
   // Force menu mode on startup (we're already inside DOMContentLoaded)
   // Go straight to Governor 2026 (GEN)
@@ -7658,46 +8227,41 @@ Promise.all([
       const { status, winnerName, winnerParty } = getDistrictCall(did);
 
       const sorted = (r.candidates || []).slice().sort((a,b)=>(b.votes||0)-(a.votes||0));
+      const shown = withAllowedPlusOther(sorted, r.total);
 
-      const stack = sorted.map((c, i) => {
+
+      // build card HTML from the allowlist + Other bucket
+      const stack = shown.map((c, i) => {
         const pct = r.total ? (100 * (c.votes || 0) / r.total) : 0;
-
-        // House uses party icon; mirrors your other builders
-        const img = (OFFICE === 'H') ? imgForParty(c.party)
-          : (shouldUsePartyIcon(YEAR, OFFICE) ? imgForParty(c.party) : imgForCandidate(c.name));
-
-        const alt = (OFFICE === 'H') ? 'Candidate'
-          : (shouldUsePartyIcon(YEAR, OFFICE) ? (c.party || 'Party') : c.name);
-
-        const nameOverlay =
-          (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'H')
-            ? (() => {
-                const { first, last } = splitName(c.name);
-                const pClass = partyClass(c.party);
-                return `
-                  <div class="cand-name ${pClass}">
-                    <div class="first">${first}</div>
-                    <div class="last">${last}</div>
-                  </div>`;
-              })()
-            : '';
 
         return `
           <div class="cand-item">
             <div class="cand-card">
-              <img src="${img}" alt="${alt}" data-party="${c.party || ''}">
-              ${nameOverlay}
+              ${(() => { const {src, alt} = imageMetaFor(c); return `
+                <img src="${src}" alt="${alt}" data-party="${c.party || ''}">
+              `; })()}
+              ${
+                (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || OFFICE === 'H')
+                  ? (() => {
+                      const { first, last } = splitName(c.name);
+                      const pClass = partyClass(c.party);
+                      return `
+                        <div class="cand-name ${pClass}">
+                          <div class="first">${first}</div>
+                          <div class="last">${last}</div>
+                        </div>`;
+                    })()
+                  : ''
+              }
               <div class="cand-overlay">
-                <div class="pct">
-                  <span class="num">${pct.toFixed(2)}</span>
-                  <span class="pct-sign">%</span>
-                </div>
+                <div class="pct"><span class="num">${pct.toFixed(2)}</span><span class="pct-sign">%</span></div>
                 <div class="votes">${fmt(c.votes)}</div>
               </div>
             </div>
-            ${ leaderLineHTML(i, r.total, sorted) }
+            ${ leaderLineHTML(i, r.total, shown) }
           </div>`;
       }).join("");
+
 
       
       // === 2026 House district-level: update existing DOM in place (no flash) ===
@@ -7731,8 +8295,8 @@ Promise.all([
           // Use the same variables you already compute in this function:
           // - 'sorted' (array of candidates in order)
           // - 'r' (rollup with r.total for vote sum)
-          for (let i = 0; i < sorted.length; i++) {
-            const c = sorted[i];
+          for (let i = 0; i < shown.length; i++) {
+             const c = shown[i];
             const pct = r.total ? (100 * (c.votes || 0) / r.total) : 0;
             const item = ensureItem(i);
             const card = item.querySelector('.cand-card');
@@ -7770,7 +8334,7 @@ Promise.all([
             if (votesEl) votesEl.textContent = Number(c.votes || 0).toLocaleString('en-US');
 
             // Leader line (use your existing markup generator)
-            const newLeadHTML = leaderLineHTML(i, r.total, sorted);
+            const newLeadHTML = leaderLineHTML(i, r.total, shown);
             const existingLead = item.querySelector('.leadline');
             if (existingLead) {
               existingLead.outerHTML = newLeadHTML;
@@ -7780,7 +8344,7 @@ Promise.all([
           }
 
           // Trim any surplus items
-          while (list.children.length > sorted.length) {
+          while (list.children.length > shown.length) {
             list.removeChild(list.lastElementChild);
           }
 
@@ -8033,6 +8597,7 @@ async function getJSON(url){
 async function getDataFromCache(){
       const token = ++REQ_TOKEN;
       const ctx = { year: YEAR, office: OFFICE, race: RACE };
+      const hadData = !!(countyData && Object.keys(countyData).length);
   // Historic XML: P (2016/2020/2024) GEN + G (2016/2018/2020/2022/2024) GEN + S (2024) GEN
   const isHistoric = isHistoricMode();
 
@@ -8043,7 +8608,7 @@ async function getDataFromCache(){
     await loadHistoricXML(ctx.year, ctx.office, ctx.race);
         if (token !== REQ_TOKEN || YEAR!==ctx.year || OFFICE!==ctx.office || RACE!==ctx.race) return; // stale, bail
     colorizeInstant();
-    if (["P","S","G"].includes(OFFICE) && selectedStateFP && NAV_LEVEL >= 1) {
+    if (["P","S","G","A","M"].includes(OFFICE) && selectedStateFP && NAV_LEVEL >= 1) {
         renderStatePanel(selectedStateFP);
         }
     if (NAV_LEVEL === 0 && !selectedStateFP && !selectedFips && !selectedDistrict) {
@@ -8062,60 +8627,62 @@ async function getDataFromCache(){
 
 
   // Default rule: non-2026 years show a blank map (until sources are connected)
-  if (YEAR !== "2026" && !(YEAR === "2025" && OFFICE === "G")) {
-    stopLivePolling();
-    countyData = {};
-    colorizeInstant(true);
-    if (OFFICE === "H" && selectedDistrict) {
-      countyInfo.innerHTML = `<p>No data for ${YEAR} House district ${selectedDistrict}</p>`;
-    } else if (selectedFips) {
-      countyInfo.innerHTML = `<p>No data for ${YEAR} (FIPS ${selectedFips})</p>`;
-    } else {
-      countyInfo.innerHTML = `<p>No data for ${YEAR} yet.</p>`;
-    }
-
-    return;
+  if (YEAR !== "2026" && !(YEAR === "2025" && (
+     OFFICE === "G" || OFFICE === "A" || OFFICE === "M" ||
+     (OFFICE === "H" && RACE === "S")   // ← NEW: allow House Special as live
+   ))) {
+       if (!hadData) {
+            colorizeInstant(true);
+            if (OFFICE === "H" && selectedDistrict) {
+              countyInfo.innerHTML = `<p>No data for ${YEAR} House district ${selectedDistrict}</p>`;
+            } else if (selectedFips) {
+              countyInfo.innerHTML = `<p>No data for ${YEAR} (FIPS ${selectedFips})</p>`;
+            } else {
+              countyInfo.innerHTML = `<p>No data for ${YEAR} yet.</p>`;
+            }
+          }
+          return false;
   }
 
   
 
 
   // fetch rows for the current selection
-  countyData = {};
   const d = await getJSON(`/cache/ru?office=${OFFICE}&raceTypeId=${encodeURIComponent(RACE)}`);
+   
+   if (!d || !Array.isArray(d.rows) ||
+         token !== REQ_TOKEN || YEAR!==ctx.year || OFFICE!==ctx.office || RACE!==ctx.race ||
+         d.rows.length === 0) {
+       return false;
+     }
 
-  if (d && d.rows && token === REQ_TOKEN && YEAR===ctx.year && OFFICE===ctx.office && RACE===ctx.race) {
-    if (OFFICE === "H") {
-      d.rows.forEach(row => { countyData[row.district_id] = row; });
-    } else {
-      d.rows.forEach(row => { countyData[row.fips] = row; });
-    }
-    colorizeInstant(true);   // incremental repaint + HUD progress
-    if (["P","S","G"].includes(OFFICE) && selectedStateFP && NAV_LEVEL >= 1) {
-        renderStatePanel(selectedStateFP);
-       }
-       if (selectedFips) {
-         renderCountyPanel(selectedFips);
-         showPercentInBoltForCounty(selectedFips);
-       } else if (selectedDistrict) {
-         renderDistrictPanel(selectedDistrict);
-         showPercentInBoltForDistrict(selectedDistrict);
-       } else if (selectedStateFP) {
-         renderStatePanel(selectedStateFP);
-       } else if (NAV_LEVEL === 0 && !selectedStateFP && !selectedFips && !selectedDistrict) {
-         renderNationalPanel();
-       }
+     // Build off-screen map and then swap atomically (prevents flashes)
+     const next = {};
+     if (OFFICE === "H") d.rows.forEach(row => { next[row.district_id] = row; });
+     else                d.rows.forEach(row => { next[row.fips]        = row; });
+     countyData = next;
+
+     colorizeInstant(true);   // incremental repaint + HUD progress
+     if (["P","S","G","A","M"].includes(OFFICE) && selectedStateFP && NAV_LEVEL >= 1) {
+       renderStatePanel(selectedStateFP);
+     }
+     if (selectedFips) {
+       renderCountyPanel(selectedFips);
+       showPercentInBoltForCounty(selectedFips);
+     } else if (selectedDistrict) {
+       renderDistrictPanel(selectedDistrict);
+       showPercentInBoltForDistrict(selectedDistrict);
+     } else if (selectedStateFP) {
+       renderStatePanel(selectedStateFP);
+     } else if (NAV_LEVEL === 0 && !selectedStateFP && !selectedFips && !selectedDistrict) {
+       renderNationalPanel();
+     }
+     // Let other widgets (e.g., map BOP bar) refresh without re-fetching.
+     try { window.dispatchEvent(new Event('elections:data-updated')); } catch {}
+     return true;
 
 
-  }
 
-  // refresh details panel if something is selected
-  if (OFFICE === "H" && selectedDistrict) {
-    renderDistrictPanel(selectedDistrict);
-    showPercentInBoltForDistrict(selectedDistrict);
-  } else if (selectedFips) {
-    renderCountyPanel(selectedFips);
-  }
 
   // append-only log read (also cached)
   
@@ -8181,7 +8748,7 @@ async function getDataFromCache(){
 
           // 2) Load the data for the new YEAR/OFFICE/RACE
           countyData = {};
-          if (YEAR === "2026") startLivePolling(); else stopLivePolling();
+          if (isLiveContext()) startLivePolling(); else stopLivePolling();
           await getDataFromCache();   // will now call colorizeInstant(true) (change #1)
 
           // 3) Force a repaint (belt-and-suspenders) and restore selection/panel
@@ -8205,7 +8772,7 @@ async function getDataFromCache(){
         // 🚩 Stay-zoomed across years for H districts (district view only)
         if (OFFICE === "H" && selectedDistrict && NAV_LEVEL === 2) {
           // Make sure we're on the right live/historic polling
-          if (YEAR === "2026") startLivePolling(); else stopLivePolling();
+          if (isLiveContext()) startLivePolling(); else stopLivePolling();
 
           // Ensure district geometries for this year are loaded
           await loadDistrictMapForYear(YEAR);
@@ -8249,7 +8816,7 @@ async function getDataFromCache(){
         colorizeInstant();
         updateActiveBadge();
 
-        if (YEAR === "2026") {
+        if (isLiveContext()) {
           startLivePolling();
           getDataFromCache();
         } else {
@@ -8279,23 +8846,26 @@ async function getDataFromCache(){
         return;
       }
 
-      const sorted = (r.candidates || [])
-        .slice()
-        .sort((a,b)=>(b.votes||0)-(a.votes||0));
+      const sorted  = (r.candidates || []).slice().sort((a,b)=>(b.votes||0)-(a.votes||0));
+      const allowed = withAllowedPlusOther(sorted, r.total);
 
-      const stack = sorted.map((c, i) => {
+        if (!allowed.length){
+          countyInfo.innerHTML = '';   // nothing to show (and nothing to fetch)
+          return;
+        }
+        const stack = allowed.map((c, i) => {
         const pct = r.total ? (100 * (c.votes || 0) / r.total) : 0;
         const useParty = shouldUsePartyIcon(YEAR, OFFICE);
         const img = (OFFICE === 'S') ? imgForParty(c.party)
-          : (OFFICE === 'G') ? imgForParty(c.party)
+          : (OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M') ? imgForParty(c.party)
           : (OFFICE === 'H') ? imgForParty(c.party)
           : (shouldUsePartyIcon(YEAR, OFFICE) ? imgForParty(c.party) : imgForCandidate(c.name));
 
-          const alt = (OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'H') ? 'Candidate'
+          const alt = (OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || OFFICE === 'H') ? 'Candidate'
              : (shouldUsePartyIcon(YEAR, OFFICE) ? (c.party || 'Party') : c.name);
 
         // Only show FIRST+LAST name overlay for Presidential (P) to match your other views
-        const nameOverlay = (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'H')
+        const nameOverlay = (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || OFFICE === 'H')
           ? (() => {
               const { first, last } = splitName(c.name);
               const pClass = partyClass(c.party);
@@ -8322,15 +8892,15 @@ async function getDataFromCache(){
                   <div class="votes">${fmt(c.votes)}</div>
                 </div>
               </div>
-              ${ leaderLineHTML(i, r.total, sorted) }
+              ${ leaderLineHTML(i, r.total, allowed) }
             </div>`;
 
       }).join("");
 
       
 
-      if ((YEAR === '2026' || (YEAR === '2025' && OFFICE === 'G')) &&
-          (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G')) {
+      if ((YEAR === '2026' || (YEAR === '2025' && OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M')) &&
+          (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M')) {
         const list = countyInfo.querySelector('.cand-list');
         if (list && list.children.length) {
 
@@ -8358,8 +8928,8 @@ async function getDataFromCache(){
             return item;
           };
 
-          for (let i = 0; i < sorted.length; i++) {
-            const c = sorted[i];
+          for (let i = 0; i < allowed.length; i++) {
+              const c = allowed[i];
             const pct = r.total ? (100 * (c.votes || 0) / r.total) : 0;
             const item = ensureItem(i);
             const card = item.querySelector('.cand-card');
@@ -8397,18 +8967,18 @@ async function getDataFromCache(){
             if (votesEl) votesEl.textContent = Number(c.votes || 0).toLocaleString('en-US');
 
             // Leader line (replace or insert once)
-            const newLeadHTML = leaderLineHTML(i, r.total, sorted);
-            const existingLead = item.querySelector('.leadline');
-            if (existingLead) {
-              // replace the whole node to reuse your exact markup/styling
-              existingLead.outerHTML = newLeadHTML;
-            } else {
-              item.insertAdjacentHTML('beforeend', newLeadHTML);
-            }
+            // Leader line (replace or insert once)
+                        const newLeadHTML = leaderLineHTML(i, r.total, allowed);
+                        const existingLead = item.querySelector('.leadline');
+                        if (existingLead) {
+                          existingLead.outerHTML = newLeadHTML;
+                        } else {
+                          item.insertAdjacentHTML('beforeend', newLeadHTML);
+                        }
           }
 
           // Trim any extra old items if the new list is shorter
-          while (list.children.length > sorted.length) {
+          while (list.children.length > allowed.length) {
             list.removeChild(list.lastElementChild);
           }
 
@@ -8480,16 +9050,52 @@ async function getDataFromCache(){
       const agg  = (OFFICE === 'H')
         ? aggregateStateCandidatesHouse(statefp)
         : aggregateStateCandidates(statefp);
+        const candSrc = withAllowedPlusOther(agg.candidates, agg.total);
+
+          if (!candSrc.length){ ; return; }
       if (!agg.total){
         countyInfo.innerHTML = `<p>No cached data for ${usps}</p>`;
         return;
       }
 
       // HOUSE @ state level (2026): show called seat counts by party (like national)
+      // HOUSE @ state level:
+      // - For Special (H:S): show allowlist cards + single "Other" bucket
+      // - For others: keep the called-seat tally
       if (OFFICE === 'H') {
+        if (RACE === 'S') {
+          const agg = aggregateStateCandidatesHouse(statefp);
+          const candSrc = withAllowedPlusOther(agg.candidates, agg.total);
+          const fmt = (n) => Number(n || 0).toLocaleString('en-US');  // ← add this
+
+          const stack = candSrc.map((c, i) => {
+            const pct = agg.total ? (100 * (c.votes || 0) / agg.total) : 0;
+            const { src, alt } = imageMetaFor(c);
+            const { first, last } = splitName(c.name);
+            const pClass = partyClass(c.party);
+            return `
+              <div class="cand-item">
+                <div class="cand-card">
+                  <img src="${src}" alt="${alt}" data-party="${c.party || ''}">
+                  <div class="cand-name ${pClass}">
+                    <div class="first">${first}</div>
+                    <div class="last">${last}</div>
+                  </div>
+                  <div class="cand-overlay">
+                    <div class="pct"><span class="num">${pct.toFixed(2)}</span><span class="pct-sign">%</span></div>
+                    <div class="votes">${fmt(c.votes)}</div>
+                  </div>
+                </div>
+                ${ leaderLineHTML(i, agg.total, candSrc) }
+              </div>`;
+          }).join("");
+          countyInfo.innerHTML = `<div class="cand-list">${stack}</div>`;
+          return;
+        }
+
+        // Default House state view (non-special): keep the tally
         const rows = aggregateHouseCalledWinnersForState(statefp);
         const fmt  = n => Number(n || 0).toLocaleString('en-US');
-
         const html = rows.length
           ? rows.map(r => `
               <div class="party-row party-${String(r.party).toUpperCase()}">
@@ -8497,10 +9103,10 @@ async function getDataFromCache(){
                 <div class="party-count">${fmt(r.count)}</div>
               </div>`).join("")
           : `<div class="party-row"><div class="party-name">No calls yet</div></div>`;
-
         countyInfo.innerHTML = `<div class="party-tally">${html}</div>`;
         return;
       }
+
 
       const spi = findStatePercentIn(statefp);
       showPercentInBoltForState(statefp);
@@ -8528,16 +9134,16 @@ async function getDataFromCache(){
       }
 
       // ⬇️ Use the SAME card/overlay markup as national
-      const stack = agg.candidates.map((c, i) => {
+      const stack = candSrc.map((c, i) => {
         const pct = agg.total ? (100 * (c.votes || 0) / agg.total) : 0;
         const img = (OFFICE === 'S') ? imgForParty(c.party)
-          : (OFFICE === 'G') ? imgForParty(c.party)
+          : (OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M') ? imgForParty(c.party)
           : (OFFICE === 'H') ? imgForParty(c.party)
           : (shouldUsePartyIcon(YEAR, OFFICE) ? imgForParty(c.party) : imgForCandidate(c.name));
 
-          const alt = (OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'H') ? 'Candidate'
+          const alt = (OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || OFFICE === 'H') ? 'Candidate'
           : (shouldUsePartyIcon(YEAR, OFFICE) ? (c.party || 'Party') : c.name);
-          const nameOverlay = (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'H')
+          const nameOverlay = (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || OFFICE === 'H')
           ? (() => {
               const {first,last} = splitName(c.name);
               const pClass = partyClass(c.party);
@@ -8556,7 +9162,7 @@ async function getDataFromCache(){
                   <img src="${src}" alt="${alt}" data-party="${c.party || ''}">
                 `; })()}
                 ${
-                  (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'H')
+                  (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M' || OFFICE === 'H')
                     ? (() => {
                         const { first, last } = splitName(c.name);
                         const pClass = partyClass(c.party);
@@ -8576,14 +9182,14 @@ async function getDataFromCache(){
                   <div class="votes">${fmt(c.votes)}</div>
                 </div>
               </div>
-              ${ leaderLineHTML(i, agg.total, agg.candidates) }
+              ${ leaderLineHTML(i, agg.total, candSrc) }
             </div>`;
 
       }).join("");
       
       // === 2026 state-level (P/S/G): update existing DOM in place (no flash on zoom-out) ===
-      if ((YEAR === '2026' || (YEAR === '2025' && OFFICE === 'G')) &&
-          (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G')) {
+      if ((YEAR === '2026' || (YEAR === '2025' && OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M')) &&
+          (OFFICE === 'P' || OFFICE === 'S' || OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M')) {
         const list = countyInfo.querySelector('.cand-list');
         // Only do in-place if the panel already has cards (i.e., we’re zooming back from county)
         if (list && list.children.length) {
@@ -8611,8 +9217,8 @@ async function getDataFromCache(){
           };
 
           // We’re in renderStatePanel: use the already-computed statewide aggregate `agg`
-          for (let i = 0; i < agg.candidates.length; i++) {
-            const c = agg.candidates[i];
+          for (let i = 0; i < candSrc.length; i++) {
+             const c = candSrc[i];
             const pct = agg.total ? (100 * (c.votes || 0) / agg.total) : 0;
             const item = ensureItem(i);
             const card = item.querySelector('.cand-card');
@@ -8650,7 +9256,7 @@ async function getDataFromCache(){
             if (votesEl) votesEl.textContent = Number(c.votes || 0).toLocaleString('en-US');
 
             // Leader line (your existing generator)
-            const newLeadHTML = leaderLineHTML(i, agg.total, agg.candidates);
+            const newLeadHTML = leaderLineHTML(i, agg.total, candSrc);
             const existingLead = item.querySelector('.leadline');
             if (existingLead) {
               existingLead.outerHTML = newLeadHTML;
@@ -8660,7 +9266,7 @@ async function getDataFromCache(){
           }
 
           // Trim any surplus old items
-          while (list.children.length > agg.candidates.length) {
+          while (list.children.length > candSrc.length) {
             list.removeChild(list.lastElementChild);
           }
 
@@ -8835,7 +9441,8 @@ async function getDataFromCache(){
 
     // add this
     function onCountyClick(ev, d){
-      zoomToFeature(d, 12);
+        const h = (+d3.select('#map').attr('height') || 0);
+          zoomToFeature(d, 12, -COUNTY_Y_BIAS_FRAC * h);
       const f = String(d.id).padStart(5,"0");
       selectedFips = f;
       renderCountyPanel(f);
@@ -8902,6 +9509,16 @@ async function getDataFromCache(){
         else {
         // === P / S / G county coloring ===
         // === P / S / G county coloring ===
+        // M 2025: in New York, grey out *all* counties except the 5 NYC boroughs
+        if (OFFICE === 'M' && String(YEAR) === '2025') {
+          const f = String(d.id).padStart(5,'0');
+          const statefp = f.slice(0,2);
+          const usps = USPS_BY_STATEFP?.[statefp];
+          if (usps === 'NY' && !NYC_BOROUGH_FIPS.has(f)) {
+            return NO_RACE_GREY;    // or COLOR_NO_DATA if you prefer that grey
+          }
+        }
+
         const f = String(d.id).padStart(5, "0");
         const r = countyData[f];
         if (!r) return COLOR_BG;
@@ -8930,7 +9547,7 @@ async function getDataFromCache(){
           lead === "DEM" ? COLOR_DEM : COLOR_IND;
 
         // Dim neighbors when drilled into a single county
-        if (["P","S","G"].includes(OFFICE) && NAV_LEVEL === 2 && selectedFips) {
+        if (["P","S","G","A","M"].includes(OFFICE) && NAV_LEVEL === 2 && selectedFips) {
           const statefp = selectedFips.slice(0,2);
           const thisStatefp = f.slice(0,2);
           if (thisStatefp === statefp && f !== selectedFips) {
@@ -9054,14 +9671,14 @@ async function getDataFromCache(){
             return !!usps && isNoSenate2026(usps);
           });
       }
-      if (NAV_LEVEL >= 1 && OFFICE === 'G' && String(YEAR) === '2026' && statesSel) {
+      if (NAV_LEVEL >= 1 && (OFFICE === 'G' || OFFICE === 'A' || OFFICE === 'M') && String(YEAR) === '2025' && statesSel) {
         const selectedUSPS = USPS_BY_STATEFP?.[String(selectedStateFP).padStart(2,"0")] || null;
         statesSel
           .attr('fill', d => {
             const usps =
               d.usps || d.properties?.usps || d.properties?.STUSPS ||
               USPS_BY_STATEFP?.[String(d.id).padStart(2,"0")];
-            if (usps && isNoGovernor2026(usps)) return NO_RACE_GREY;
+              if (usps && !hasLiveState2025(usps)) return NO_RACE_GREY;
             return fillForState?.(d) ?? COLOR_BG;
           })
           .classed('no-race', d => {
@@ -9098,13 +9715,13 @@ const btnRight = document.getElementById("getDataBtnRight");
 if (btnRight) btnRight.onclick = getDataFromCache;
 
 // Silent, last-ditch fallback for missing candidate headshots
+// Quiet only subsequent <img> load errors; keep real JS errors visible
+// (optional) quiet image errors only AFTER the document handler learns the URL
 window.addEventListener('error', (e) => {
-  const t = e.target;
-  if (t && t.tagName === 'IMG') {
-    const party = t.getAttribute('data-party') || 'IND';
-    t.src = imgForParty(party);
-  }
-}, true);
+  if (e.target instanceof HTMLImageElement) e.stopImmediatePropagation();
+}, false); // ← bubble phase
+
+
     
     
     // One-time: pick the same SVG your P race uses

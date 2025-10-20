@@ -3,7 +3,7 @@
 # - County-level for P/S/G via /v2/elections; District-level for H via /v2/districts
 # - Background hub cycles (office, raceTypeId, state) and snapshots cache to ./temp/p_cache.json
 
-import os, time, json, threading, itertools, queue
+import os, time, json, threading, itertools, queue, random
 from collections import deque
 from datetime import datetime
 from flask import Flask, send_from_directory, jsonify, request
@@ -31,6 +31,15 @@ _retries = Retry(
 )
 HTTP.mount("http://", HTTPAdapter(max_retries=_retries))
 HTTP.mount("https://", HTTPAdapter(max_retries=_retries))
+
+AP_API_KEY   = os.getenv("AP_API_KEY", os.getenv("AP_KEY", "123abc"))
+
+# Identify the client and carry AP key like app-with-key.py
+HTTP.headers.update({
+    "User-Agent": "ElectionHub/1.0 (+ops@example.com)",
+    "x-api-key": AP_API_KEY
+})
+
 
 
 _hub_started = False
@@ -225,6 +234,8 @@ def interpret_race_type(race_type: str) -> dict:
     return {"raw": raw, "mode": mode}
 
 
+
+
 # ---------------- Tunables (env) ----------------
 # Statewide offices (P/S/G) endpoint:
 BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "http://localhost:5037/v2/elections"))
@@ -232,6 +243,11 @@ BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "http://localhost:
 # House districts endpoint:
 BASE_URL_D    = os.getenv("BASE_URL_D", "http://localhost:5037/v2/districts")
 # BASE_URL_D    = os.getenv("BASE_URL_D", "http://127.0.0.1:15037/v2/districts")
+
+
+#BASE_URL_E   = os.getenv("BASE_URL_E", "https://api.ap.org/v2/elections")
+#BASE_URL_E   = os.getenv("BASE_URL_E", "https://api.ap.org/v3/elections")
+#BASE_URL_D   = os.getenv("BASE_URL_D", BASE_URL_E)  # House also via /v2/elections
 
 # ---------------- Tunables (env) ----------------
 # Statewide offices (P/S/G) endpoint:
@@ -242,14 +258,15 @@ BASE_URL_D    = os.getenv("BASE_URL_D", "http://localhost:5037/v2/districts")
 LEVEL_PARAM = os.getenv("LEVEL_PARAM", "ru")
 
 
-PRIMARY_DATE  = os.getenv("PRIMARY_DATE", "2026-02-15")
-GENERAL_DATE  = os.getenv("GENERAL_DATE", "2026-11-05")
+SPECIAL_DATE  = os.getenv("SPECIAL_DATE", "2025-11-04")  # change per special
+PRIMARY_DATE  = os.getenv("PRIMARY_DATE", "2025-11-04")
+GENERAL_DATE  = os.getenv("GENERAL_DATE", "2025-11-04")
 HUB_MODE      = os.getenv("HUB_MODE", "1") in ("1","true","True","YES","yes")
 
 
 # Which combos to poll (comma-separated). Add others like "Lib,Grn,NP,APP,RET" if desired.
-OFFICES    = [x.strip().upper() for x in os.getenv("OFFICES", "G,A,M").split(",") if x.strip()]
-RACE_TYPES = [x.strip() for x in os.getenv("RACE_TYPES", "G").split(",") if x.strip()]
+OFFICES    = [x.strip().upper() for x in os.getenv("OFFICES", "G,A,M,H").split(",") if x.strip()]
+RACE_TYPES = [x.strip().upper() for x in os.getenv("RACE_TYPES", "G,S").split(",") if x.strip()]
 
 # Pace the hub to suit your infra:
 MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "10"))
@@ -286,6 +303,12 @@ CACHE_SNAPSHOT_PATH = os.getenv(
     "CACHE_SNAPSHOT_PATH",
     os.path.join(TEMP_DIR, "p_cache.json")
 )
+
+SCRIPTS_DIR = os.path.abspath(os.path.join(ROOT_DIR, "..", "scripts"))
+
+@app.route("/scripts/<path:filename>")
+def serve_scripts(filename):
+    return send_from_directory(SCRIPTS_DIR, filename)
 
 # Serve ../HistoricData as /HistoricData
 HISTORIC_DIR = os.path.abspath(os.path.join(ROOT_DIR, "..", "HistoricData"))
@@ -329,6 +352,7 @@ OFFICE_STATE_FILTERS = {
     "A": [s.strip().upper() for s in os.getenv("A_STATES", "VA").split(",") if s.strip()],
     "M": [s.strip().upper() for s in os.getenv("M_STATES", "NY").split(",") if s.strip()],
     "G": [s.strip().upper() for s in os.getenv("G_STATES", "VA,NJ").split(",") if s.strip()],
+    "H": [s.strip().upper() for s in os.getenv("H_STATES", ",".join(ALL_STATES)).split(",") if s.strip()],
 }
 
 def _states_for_office(office: str):
@@ -407,9 +431,13 @@ def _snapshot_load():
 # -------------- AP-style URL builder ----------------
 def _build_url(state: str, office: str, race_type: str) -> str:
     office_u = (office or "").upper()
-    base = BASE_URL_E if office_u in ("G","A","M") else BASE_URL_D
+    base = BASE_URL_E if office_u in ("G","A","M","S") else BASE_URL_D
     rt = interpret_race_type(race_type)
-    date = GENERAL_DATE if rt["mode"] == "general" else PRIMARY_DATE
+    raw = rt["raw"]  # 'G','D','R','S',...
+    if raw == "S":
+        date = SPECIAL_DATE
+    else:
+        date = GENERAL_DATE if rt["mode"] == "general" else PRIMARY_DATE
     # now includes &level=ru (or whatever LEVEL_PARAM is)
     return f"{base}/{date}?statepostal={state}&officeId={office_u}&raceTypeId={rt['raw']}&level={LEVEL_PARAM}"
 
@@ -420,6 +448,25 @@ def _looks_like_xml(s: str) -> bool:
     if head.startswith("<!doctype html") or head.startswith("<html"):
         return False
     return head.startswith("<")
+    
+def _is_quota_403(resp) -> bool:
+    """
+    Heuristic for AP/gateway 'per-minute quota exceeded' responses.
+    """
+    try:
+        if resp.status_code != 403:
+            return False
+        body = (resp.text or "").lower()
+        if "per-minute quota exceeded" in body or "quota exceeded" in body:
+            return True
+        # Some gateways hint via ratelimit headers
+        for k in ("x-ratelimit-remaining", "ratelimit-remaining"):
+            if k in resp.headers and str(resp.headers.get(k)).strip() == "0":
+                return True
+    except Exception:
+        pass
+    return False
+
 
 
 
@@ -427,13 +474,16 @@ def _looks_like_xml(s: str) -> bool:
 def _parse_state_ru(xml_text: str, usps: str, office: str, race_type: str) -> dict:
     out = {"counties": {}, "percent_in": None}
     if not _looks_like_xml(xml_text):
-        return out
+        return None
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as e:
-        log(f"XML parse error (statewide) {usps} {office}:{race_type}: {e}", "WARN")
         return None  # signal parse failure to caller
-    
+    #
+    # Require at least one ReportingUnit; otherwise treat as malformed/empty
+    rus = root.findall(".//ReportingUnit")
+    if not rus:
+        return None
     
     
     state_status = (root.attrib.get("RaceCallStatus") or "No Decision").strip()
@@ -457,7 +507,7 @@ def _parse_state_ru(xml_text: str, usps: str, office: str, race_type: str) -> di
     # Grab state-level PercentIn from <ElectionResults>
     out["percent_in"] = root.attrib.get("PercentIn")
 
-    for ru in root.findall(".//ReportingUnit"):
+    for ru in rus:
         fips = (ru.attrib.get("FIPS") or "").zfill(5)
         name = ru.attrib.get("Name") or "Unknown"
         ru_percent = ru.attrib.get("PercentIn")
@@ -491,17 +541,22 @@ def _parse_state_ru(xml_text: str, usps: str, office: str, race_type: str) -> di
 def _parse_house_ru(xml_text: str, usps: str, office: str, race_type: str) -> dict:
     out = {"districts": {}, "percent_in": None}
     if not _looks_like_xml(xml_text):
-        return out
+        log(f"Non-XML upstream payload for {usps} {office}:{race_type}; keeping last good.", "WARN")
+        return None
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as e:
         log(f"XML parse error (house) {usps} {office}:{race_type}: {e}", "WARN")
         return None
-
+    # Require at least one ReportingUnit; otherwise treat as malformed/empty
+    rus = root.findall(".//ReportingUnit")
+    if not rus:
+        log(f"Zero ReportingUnit nodes (house) {usps} {office}:{race_type}; keeping last good.", "WARN")
+        return None
 
     out["percent_in"] = root.attrib.get("PercentIn")
 
-    for ru in root.findall(".//ReportingUnit"):
+    for ru in rus:
         did   = (ru.attrib.get("DistrictId") or "").strip()
         dnum  = (ru.attrib.get("District") or "").strip()
         name  = ru.attrib.get("Name") or f"District {dnum or did}"
@@ -543,6 +598,12 @@ def _parse_house_ru(xml_text: str, usps: str, office: str, race_type: str) -> di
         statefp = USPS_TO_STATEFP.get(usps, "")
         d2 = (dnum or "").zfill(2)
         canonical_did = (did or (statefp + d2) or dnum)
+
+        # HARD LIMIT: for House Special (H:S*), retain only TX-18
+        if office.upper() == "H" and interpret_race_type(race_type)["raw"].upper().startswith("S"):
+            if not (usps == "TX" and d2 == "18"):
+                continue
+
 
         out["districts"][canonical_did] = {
             "state": usps,
@@ -689,8 +750,26 @@ def _fetch_state(usps: str, office: str, race_type: str):
             _record_error(office, race_type, usps, why=type(e).__name__)
             log(f"Transport error {combo} {usps}: {e}", "WARN")
             return False
+        
+        #
+        # Graceful inline retry for '403: Per-minute quota exceeded'
+        if r.status_code == 403 and _is_quota_403(r):
+            wait_s = random.randint(5, 10)
+            log(f"403 quota for {combo} {usps}; sleeping {wait_s}s then retrying once.", "WARN")
+            time.sleep(wait_s)
+            try:
+                r = HTTP.get(url, timeout=TIMEOUT_SECONDS)
+                with _cache_lock:
+                    _stats["upstream_calls"] += 1
+                    _stats["upstream_bytes"] += len(r.content or b"")
+            except requests.exceptions.RequestException as e:
+                _record_error(office, race_type, usps, why=type(e).__name__)
+                log(f"Transport error after 403-retry {combo} {usps}: {e}", "WARN")
+                return False
+
 
         if r.status_code != 200:
+
             ra = r.headers.get("Retry-After")
             _record_error(office, race_type, usps, status_code=r.status_code, retry_after=ra)
             log(f"HTTP {r.status_code} for {combo} {usps}", "WARN")
@@ -709,10 +788,21 @@ def _fetch_state(usps: str, office: str, race_type: str):
                 _record_error(office, race_type, usps, why="parse")
                 return False
             _apply_psg_override(usps, parsed, office, race_type)
+        #
+        # ---- Never overwrite a good cache with an empty parsed payload ----
+        _ensure_combo_bucket(office, race_type)
+        with _cache_lock:
+            bucket = _cache["cache_by_combo"][combo]
+            prev_blob = (bucket.get("states") or {}).get(usps)
+        new_units_len = len(parsed.get("districts") or parsed.get("counties") or {})
+        if prev_blob and new_units_len == 0:
+            _record_error(office, race_type, usps, why="empty")
+            log(f"Empty/invalid payload for {combo} {usps}; preserving last good cache.", "WARN")
+            return False
+
 
 
         # Store
-        _ensure_combo_bucket(office, race_type)
         with _cache_lock:
             bucket = _cache["cache_by_combo"][combo]
             if office.upper() == "H":
@@ -782,9 +872,27 @@ def _hub_loop():
         log(f"Cycle start: states={batch_states} combos={combos}")
         for office, race_type in combos:
             allow = set(_states_for_office(office))
+            rt_raw = interpret_race_type(race_type)["raw"].upper()
+
+            # Never poll House General anywhere
+            if office.upper() == "H" and rt_raw == "G":
+                continue
+
+            # Cut all specials except House (drop G:S, A:S, M:S, etc.)
+            if rt_raw.startswith("S") and office.upper() != "H":
+                continue
+
+            # HARD LIMIT: for House Special (any S*) always poll TX only
+            if office.upper() == "H" and rt_raw.startswith("S"):
+                # ignore allow-filter entirely; force TX
+                q.put(("TX", office, race_type))
+                continue
+
+
             for s in batch_states:
                 if s in allow:
                     q.put((s, office, race_type))
+
 
         q.join()
         with _cache_lock: _cache["last_cycle_end"] = time.time()

@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""
+app-rebooter2.py — SECONDARY watchdog for app_hub (9051) + peer babysitter (rebooter1).
+- Exposes its own /health on port 9049
+- Checks peer /health on port 9050 and restarts rebooter1 if it's down
+- Watches app_hub on 9051 and restarts it (clearing port first) if unhealthy,
+  but defers by SECONDARY_DEFER_SEC to give the PRIMARY a chance first.
+
+Env overrides (optional):
+  HUB_PORT=9051
+  HUB_CMD='gunicorn -w 1 -b 0.0.0.0:9051 app_hub:app'
+  CHECK_EVERY=3.0
+  REQ_TIMEOUT=2.0
+  BACKOFF_MIN=1.0 BACKOFF_MAX=20.0
+  SECONDARY_DEFER_SEC=10.0
+  R2_HEALTH_PORT=9049
+  R1_HEALTH_URL=http://127.0.0.1:9050/health
+"""
+
+import os, sys, time, json, socket, subprocess, signal, shutil, threading
+from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
+
+import os, sys
+sys.stdout = open(os.devnull, 'w')
+sys.stderr = open(os.devnull, 'w')
+
+
+# ---------------- Tunables ----------------
+PRIMARY             = False
+PORT                = int(os.getenv("HUB_PORT", "9052"))
+HUB_CMD             = os.getenv("HUB_CMD", f"gunicorn -w 1 -b 0.0.0.0:{PORT} app_hub:app")
+
+CHECK_EVERY         = float(os.getenv("CHECK_EVERY", "3.0"))
+REQ_TIMEOUT         = float(os.getenv("REQ_TIMEOUT", "2.0"))
+BACKOFF_MIN         = float(os.getenv("BACKOFF_MIN", "1.0"))
+BACKOFF_MAX         = float(os.getenv("BACKOFF_MAX", "20.0"))
+SECONDARY_DEFER_SEC = float(os.getenv("SECONDARY_DEFER_SEC", "10.0"))
+
+# Rebooter health ports/URLs
+R2_HEALTH_PORT = int(os.getenv("R2_HEALTH_PORT", "9049"))
+R1_HEALTH_URL  = os.getenv("R1_HEALTH_URL", "http://127.0.0.1:9050/health")
+
+# Peer (PRIMARY) launch details
+PEER_FILE         = "app-reboot1.py"
+PEER_PIDFILE      = "reboot1.pid"
+
+# ---------------- Globals ----------------
+HERE = os.path.dirname(os.path.abspath(__file__))
+last_restart_ts = 0.0
+backoff = BACKOFF_MIN
+started_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+
+def shell(cmd: str):
+    return subprocess.run(cmd, shell=True, cwd=HERE,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+def port_listening(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except Exception:
+        return False
+
+def http_get(url: str, timeout: float):
+    try:
+        import requests  # type: ignore
+        try:
+            r = requests.get(url, timeout=timeout)
+            return r.status_code, r.text
+        except Exception:
+            return 0, ""
+    except Exception:
+        if shutil.which("curl"):
+            if shutil.which("timeout"):
+                r = shell(f'timeout {int(timeout)} curl -fsS --max-time {int(timeout)} "{url}"')
+            else:
+                r = shell(f'curl -fsS --max-time {int(timeout)} "{url}"')
+            if r.returncode == 0:
+                return 200, r.stdout
+            return 0, ""
+        # last resort: host-local port ping
+        try:
+            host, port = "127.0.0.1", int(url.split(":")[2].split("/")[0])
+            return (200 if port_listening(port) else 0), ""
+        except Exception:
+            return 0, ""
+
+# ------------ app_hub health/restart ------------
+def hub_health_ok() -> bool:
+    if not port_listening(PORT):
+        return False
+    code, _ = http_get(f"http://127.0.0.1:{PORT}/health", REQ_TIMEOUT)
+    return code == 200 or code == 204
+
+def clear_port(port: int):
+    
+    if shutil.which("lsof"):
+        shell(f'kill -15 $(lsof -t -i :{port}) 2>/dev/null')
+    if shutil.which("fuser"):
+        shell(f'fuser -k {port}/tcp 2>/dev/null')
+    time.sleep(0.3)
+
+def start_hub():
+    global last_restart_ts, backoff
+    
+    P = subprocess.Popen(HUB_CMD, shell=True, cwd=HERE,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                         start_new_session=True)
+    last_restart_ts = time.time()
+    backoff = BACKOFF_MIN
+    
+
+def restart_hub_with_clear_deferred():
+    global backoff
+    
+    time.sleep(SECONDARY_DEFER_SEC)
+    if hub_health_ok():
+       
+        return
+    clear_port(PORT)
+    start_hub()
+    time.sleep(backoff)
+    backoff = min(BACKOFF_MAX, max(BACKOFF_MIN, backoff * 2.0))
+
+# ------------ peer (rebooter1) watchdog ------------
+def peer_health_ok() -> bool:
+    code, _ = http_get(R1_HEALTH_URL, REQ_TIMEOUT)
+    return code == 200
+
+def start_peer_inline():
+    """
+    Start app-rebooter2.py with all output discarded; write only reboot2.pid.
+    """
+    pid_path = os.path.join(HERE, PEER_PIDFILE)
+    try:
+        P = subprocess.Popen(
+            ["python3", PEER_FILE],
+            cwd=HERE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        with open(pid_path, "w") as pf:
+            pf.write(str(P.pid))
+    except Exception:
+        # fully silent by design
+        pass
+
+
+# ------------ lightweight /health server ------------
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path.startswith("/health"):
+            body = {
+                "role": "secondary",
+                "pid": os.getpid(),
+                "started_utc": started_at,
+                "hub_port": PORT,
+                "healthy": True
+            }
+            buf = json.dumps(body).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(buf)))
+            self.end_headers()
+            self.wfile.write(buf)
+        else:
+            self.send_error(404)
+
+
+
+class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+def start_health_server():
+    srv = _ThreadingHTTPServer(("0.0.0.0", R2_HEALTH_PORT), _HealthHandler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    
+    return srv
+
+# ------------ main loop ------------
+def handle_signals():
+    def _sig(signum, _):
+        
+        sys.exit(0)
+    signal.signal(signal.SIGINT, _sig)
+    signal.signal(signal.SIGTERM, _sig)
+
+def main():
+    handle_signals()
+    start_health_server()
+    
+    while True:
+        # keep peer alive via /health
+        if not peer_health_ok():
+            start_peer_inline()
+
+        # keep hub alive (with defer so primary gets first crack)
+        if not hub_health_ok():
+            
+            restart_hub_with_clear_deferred()
+
+        time.sleep(CHECK_EVERY)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        
+        raise

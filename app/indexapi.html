@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Election Simulator — Overrides Console (with S 2026 State Calls)</title>
+<style>
+  :root { --bg:#0b1220; --fg:#e9f2ff; --muted:#9fb3d1; --card:#14233d; --ok:#a5f3a5; --warn:#ffd79a; --bad:#ff9aa2; }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.12);background:#0e1730;font-weight:700;display:flex;align-items:center;gap:10px}
+  .wrap{display:grid;grid-template-columns:1fr 420px;gap:14px;height:calc(100% - 48px);padding:12px}
+  .panel{background:var(--card);border:1px solid rgba(255,255,255,.14);border-radius:14px;display:flex;flex-direction:column;min-height:0}
+  .panel h2{margin:0;padding:10px 12px;font-size:14px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.08)}
+  .body{padding:12px;overflow:auto}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  label{font-size:12px;color:var(--muted)}
+  select,input{background:#17274a;color:var(--fg);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:6px 8px}
+  input[type=number]{width:120px}
+  input[type=text]{min-width:220px}
+  button{background:#1f2d50;color:var(--fg);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:8px 12px;cursor:pointer}
+  button:hover{background:#213360}
+  .badge{background:#17274a;padding:4px 10px;border-radius:999px;font-size:12px}
+  .mono{font-family:ui-monospace,monospace;font-size:12px}
+  .list{display:grid;gap:8px}
+  .item{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:8px 10px}
+  .hidden{display:none}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .subtle{opacity:.75}
+  .hr{height:1px;background:rgba(255,255,255,.08);margin:10px 0}
+  .note{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+  <header>
+    <div>Election Simulator — Overrides Console</div>
+    <span id="status" class="badge">loading…</span>
+    <a class="badge" href="/metrics" target="_blank">metrics</a>
+    <a class="badge" href="/api/ping" target="_blank">ping</a>
+  </header>
+
+  <div class="wrap">
+    <section class="panel">
+      <h2>Vote Overrides — <span id="officeLabel">President</span></h2>
+      <div class="body">
+
+        <div class="row">
+          <label for="officeSel">Office</label>
+          <select id="officeSel" title="Choose race">
+            <option value="P" selected>President</option>
+            <option value="G">Governor</option>
+            <option value="S">Senator</option>
+            <option value="H">House</option>
+          </select>
+
+          <label for="stateSel">State</label>
+          <select id="stateSel"></select>
+
+          <label id="countyLbl" for="countySel">County</label>
+          <select id="countySel" style="min-width:280px"></select>
+
+          <label id="districtLbl" class="hidden" for="districtSel">District</label>
+          <select id="districtSel" class="hidden" style="min-width:280px"></select>
+        </div>
+
+        <div class="row">
+          <label for="rep">REP</label>
+          <input id="rep" type="text" placeholder="e.g. 120345" />
+          <label for="dem">DEM</label>
+          <input id="dem" type="text" placeholder="e.g. 118903" />
+          <label for="ind">IND</label>
+          <input id="ind" type="text" placeholder="e.g. 8901" />
+        </div>
+
+        <div class="row">
+          <button id="applyBtn">Apply Override</button>
+          <button id="removeBtn">Remove Override</button>
+          <button id="clearAllBtn" title="Remove every override (counties + districts)">Clear ALL Overrides</button>
+          <span id="msg" class="mono"></span>
+        </div>
+
+        <div class="row">
+          <button id="previewBtn" title="Fetch current XML to confirm override is applied">Preview</button>
+          <span class="mono">Opens the current office/state feed in a new tab.</span>
+        </div>
+
+        <div class="hr"></div>
+
+        <h3 class="subtle">S 2026 — State Call Overrides (manual)</h3>
+        <p class="note">Use this to force the <b>Senate 2026 General</b> state call. Supports <em>Called</em> or <em>No Decision</em>, and an optional winner party/name. These overrides should be respected by your UI when computing the national rollup and state coloring.</p>
+
+        <div class="twocol">
+          <div>
+            <div class="row">
+              <label for="sStateSel">State</label>
+              <select id="sStateSel"></select>
+            </div>
+            <div class="row">
+              <label for="sStatusSel">Status</label>
+              <select id="sStatusSel">
+                <option value="Called">Called</option>
+                <option value="No Decision" selected>No Decision</option>
+                <option value="Recount">Recount</option>
+                <option value="Pending">Pending</option>
+              </select>
+            </div>
+            <div class="row">
+              <label for="sPartySel">Winner Party</label>
+              <select id="sPartySel">
+                <option value="">— none —</option>
+                <option value="DEM">DEM</option>
+                <option value="REP">REP</option>
+                <option value="IND">IND</option>
+              </select>
+            </div>
+            <div class="row">
+              <label for="sWinnerName">Winner Name</label>
+              <input id="sWinnerName" type="text" placeholder="e.g. Taylor Lewis" />
+            </div>
+            <div class="row">
+              <button id="sApplyBtn">Apply S 2026 Call</button>
+              <button id="sRemoveBtn">Remove S 2026 Call</button>
+              <button id="sExportBtn" title="Download all S 2026 state-call overrides as JSON">Export JSON</button>
+              <span id="sMsg" class="mono"></span>
+            </div>
+          </div>
+          <div>
+            <div class="row" style="justify-content:space-between;align-items:center">
+              <div class="subtle">Current S 2026 Overrides</div>
+              <button id="sClearAllBtn" title="Remove every S 2026 state-call override">Clear ALL</button>
+            </div>
+            <div id="sList" class="list"></div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h2>Current Overrides</h2>
+      <div class="body">
+        <div id="ovrList" class="list"></div>
+      </div>
+    </aside>
+  </div>
+
+<script>
+// -------------- Utilities --------------
+const statusEl    = document.getElementById('status');
+const officeSel   = document.getElementById('officeSel');
+const officeLabel = document.getElementById('officeLabel');
+const stateSel    = document.getElementById('stateSel');
+const countyLbl   = document.getElementById('countyLbl');
+const countySel   = document.getElementById('countySel');
+const districtLbl = document.getElementById('districtLbl');
+const districtSel = document.getElementById('districtSel');
+const repEl       = document.getElementById('rep');
+const demEl       = document.getElementById('dem');
+const indEl       = document.getElementById('ind');
+const msgEl       = document.getElementById('msg');
+const ovrList     = document.getElementById('ovrList');
+
+// S 2026 controls
+const sStateSel   = document.getElementById('sStateSel');
+const sStatusSel  = document.getElementById('sStatusSel');
+const sPartySel   = document.getElementById('sPartySel');
+const sWinnerName = document.getElementById('sWinnerName');
+const sApplyBtn   = document.getElementById('sApplyBtn');
+const sRemoveBtn  = document.getElementById('sRemoveBtn');
+const sExportBtn  = document.getElementById('sExportBtn');
+const sClearAllBtn= document.getElementById('sClearAllBtn');
+const sList       = document.getElementById('sList');
+const sMsg        = document.getElementById('sMsg');
+
+function fmt(n){ return String(n); }
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+async function api(url, opts){
+  try{
+    const r = await fetch(url, Object.assign({cache:'no-store'}, opts||{}));
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const ct = r.headers.get('content-type') || '';
+    if(ct.includes('application/json')) return await r.json();
+    return await r.text();
+  }catch(e){
+    // Let caller decide on fallback; do not spam the global message here.
+    throw e;
+  }
+}
+
+function setOfficeUI(){
+  const val = officeSel.value;
+  officeLabel.textContent =
+    val === 'P' ? 'President' :
+    val === 'G' ? 'Governor' :
+    val === 'S' ? 'Senator' : 'House';
+
+  const isHouse = (val === 'H');
+  countyLbl.classList.toggle('hidden', isHouse);
+  countySel.classList.toggle('hidden', isHouse);
+  districtLbl.classList.toggle('hidden', !isHouse);
+  districtSel.classList.toggle('hidden', !isHouse);
+}
+
+async function loadStates(){
+  const states = await api('/registry/states').catch(()=>[]);
+  const opts = states.map(s=>`<option value="${s}">${s}</option>`).join('');
+  stateSel.innerHTML = opts;
+  sStateSel.innerHTML = opts;
+  if(states.length){ await loadGeo(states[0]); }
+}
+
+async function loadGeo(state){
+  const isHouse = (officeSel.value === 'H');
+  if(isHouse){
+    const districts = await api('/registry/districts?state='+encodeURIComponent(state)).catch(()=>[]);
+    districtSel.innerHTML = districts.map(d=>`<option value="${d.id}">${d.id} — ${d.label}</option>`).join('');
+  }else{
+    const counties = await api('/registry/counties?state='+encodeURIComponent(state)).catch(()=>[]);
+    countySel.innerHTML = counties.map(c=>`<option value="${c.fips}">${c.fips} — ${c.name}</option>`).join('');
+  }
+}
+
+officeSel.onchange = async () => {
+  setOfficeUI();
+  await loadGeo(stateSel.value);
+};
+stateSel.onchange = async () => { await loadGeo(stateSel.value); };
+
+// -------------- Vote override handlers (existing behavior) --------------
+
+document.getElementById('applyBtn').onclick = async () => {
+  const office = officeSel.value;
+  try{
+    if(office === 'H'){
+      const district_id = districtSel.value;
+      const rep = repEl.value, dem = demEl.value, ind = indEl.value;
+      await api('/override/district', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ district_id, rep, dem, ind })
+      });
+      msgEl.textContent = `Override saved for District ${district_id}: REP ${fmt(rep)} • DEM ${fmt(dem)} • IND ${fmt(ind)}`;
+    }else{
+      const fips = countySel.value;
+      const rep = repEl.value, dem = demEl.value, ind = indEl.value;
+      await api('/override/county', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ fips, rep, dem, ind })
+      });
+      msgEl.textContent = `Override saved for FIPS ${fips}: REP ${fmt(rep)} • DEM ${fmt(dem)} • IND ${fmt(ind)}`;
+    }
+  }catch(e){
+    msgEl.textContent = 'Error applying override: '+e.message;
+  }
+  await refreshOverrides();
+};
+
+document.getElementById('removeBtn').onclick = async () => {
+  const office = officeSel.value;
+  try{
+    if(office === 'H'){
+      const district_id = districtSel.value;
+      await api('/override/district?district_id='+encodeURIComponent(district_id), { method:'DELETE' });
+      msgEl.textContent = `Override removed for District ${district_id}`;
+    }else{
+      const fips = countySel.value;
+      await api('/override/county?fips='+encodeURIComponent(fips), { method:'DELETE' });
+      msgEl.textContent = `Override removed for FIPS ${fips}`;
+    }
+  }catch(e){
+    msgEl.textContent = 'Error removing override: '+e.message;
+  }
+  await refreshOverrides();
+};
+
+document.getElementById('clearAllBtn').onclick = async () => {
+  if(!confirm('Clear ALL overrides (counties + districts)?')) return;
+  try{
+    await api('/overrides', { method:'DELETE' });
+    msgEl.textContent = 'All overrides cleared.';
+  }catch(e){
+    msgEl.textContent = 'Error clearing overrides: '+e.message;
+  }
+  await refreshOverrides();
+};
+
+document.getElementById('previewBtn').onclick = () => {
+  const st = stateSel.value || 'CA';
+  const office = officeSel.value;
+  let url;
+  if(office === 'H'){
+    url = `/v2/districts/2024-11-05?statepostal=${st}&raceTypeId=G&level=ru&officeId=H`;
+  }else{
+    url = `/v2/elections/2024-11-05?statepostal=${st}&raceTypeId=G&raceId=0&level=ru&officeId=${office}`;
+  }
+  window.open(url, '_blank');
+};
+
+// -------------- S 2026 State-call overrides (new) --------------
+
+const LSK = 'S2026_STATE_CALL_OVERRIDES';
+function readLocalSOverrides(){
+  try{ return JSON.parse(localStorage.getItem(LSK) || '{}'); }catch(_){ return {}; }
+}
+function writeLocalSOverrides(obj){ localStorage.setItem(LSK, JSON.stringify(obj)); }
+
+async function getServerSOverrides(){
+  try{
+    const j = await api('/overrides');
+    // Expect optional shape: { state_calls: { "AZ": { status, winner_party, winner_name, office:"S", year:2026, race:"G" } } }
+    const sc = (j && j.state_calls) || {};
+    // Only keep S 2026 G
+    const filtered = {};
+    for(const [k,v] of Object.entries(sc)){
+      if((v.office||'')==='S' && String(v.year)==='2026' && (v.race||'')==='G'){
+        filtered[k] = { status:v.status, winner_party:v.winner_party||'', winner_name:v.winner_name||'' };
+      }
+    }
+    return filtered;
+  }catch(_){
+    return {};
+  }
+}
+
+async function saveSOverrideToServer(state, payload){
+  // POST /override/statecall  body: { state, office:'S', year:2026, race:'G', status, winner_party, winner_name }
+  try{
+    await api('/override/statecall', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ state, office:'S', year:2026, race:'G', ...payload })
+    });
+    return true;
+  }catch(_){ return false; }
+}
+
+async function removeSOverrideFromServer(state){
+  try{
+    await api(`/override/statecall?state=${encodeURIComponent(state)}&office=S&year=2026&race=G`, { method:'DELETE' });
+    return true;
+  }catch(_){ return false; }
+}
+
+function renderSList(list){
+  if(!list || !Object.keys(list).length){
+    sList.innerHTML = '<div class="mono">No S 2026 overrides set.</div>';
+    return;
+  }
+  const rows = Object.entries(list).sort(([a],[b])=>a.localeCompare(b)).map(([st,v])=>{
+    const stat = v.status || 'No Decision';
+    const party = v.winner_party || '—';
+    const name = v.winner_name || '—';
+    return `<div class="item mono">${st}: <b>${stat}</b> • ${party} • ${name}</div>`;
+  }).join('');
+  sList.innerHTML = rows;
+}
+
+async function refreshSOverridesUI(){
+  // Merge: server wins over local for the same state
+  const local = readLocalSOverrides();
+  const server = await getServerSOverrides();
+  const merged = { ...local, ...server };
+  renderSList(merged);
+}
+
+sApplyBtn.onclick = async () => {
+  const st = sStateSel.value;
+  const status = sStatusSel.value;
+  const winner_party = sPartySel.value || '';
+  const winner_name = sWinnerName.value.trim();
+
+  // Try server first
+  const ok = await saveSOverrideToServer(st, { status, winner_party, winner_name });
+  if(!ok){
+    // Fallback to localStorage
+    const j = readLocalSOverrides();
+    j[st] = { status, winner_party, winner_name };
+    writeLocalSOverrides(j);
+    sMsg.textContent = `Saved locally for ${st}.`;
+  }else{
+    sMsg.textContent = `Saved on server for ${st}.`;
+  }
+  await refreshSOverridesUI();
+};
+
+sRemoveBtn.onclick = async () => {
+  const st = sStateSel.value;
+  const ok = await removeSOverrideFromServer(st);
+  if(!ok){
+    const j = readLocalSOverrides();
+    delete j[st];
+    writeLocalSOverrides(j);
+    sMsg.textContent = `Removed local override for ${st}.`;
+  }else{
+    sMsg.textContent = `Removed server override for ${st}.`;
+  }
+  await refreshSOverridesUI();
+};
+
+sClearAllBtn.onclick = async () => {
+  if(!confirm('Clear ALL S 2026 state-call overrides?')) return;
+
+  // Best effort: try to ask server to clear if an endpoint exists
+  try{ await api('/override/statecall/all?office=S&year=2026&race=G', { method:'DELETE' }); }catch(_){/* ignore */}
+
+  // Always clear local copy
+  writeLocalSOverrides({});
+  sMsg.textContent = 'Cleared all S 2026 overrides.';
+  await refreshSOverridesUI();
+};
+
+    sExportBtn.onclick = async () => {
+      // merge server → local (server wins on conflicts)
+      const server = await getServerSOverrides();
+      const local  = readLocalSOverrides();
+      const merged = { ...local, ...server };
+
+      const blob = new Blob([JSON.stringify(merged, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 's2026_state_call_overrides.json';
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(url);
+      a.remove();
+    };
+
+
+// -------------- Current overrides list (counties + districts) --------------
+
+async function refreshOverrides(){
+  try{
+    const j = await api('/overrides');
+
+    const cRows = Object.entries((j && j.counties) || {});
+    const dRows = Object.entries((j && j.districts) || {});
+
+    if(!cRows.length && !dRows.length){
+      ovrList.innerHTML = '<div class="mono">No overrides set.</div>';
+    }else{
+      const countyHtml = cRows.length ? (
+        '<div class="mono" style="opacity:.7;margin:4px 0 2px">Counties</div>' +
+        cRows.map(([fips, v]) =>
+          `<div class="item mono">FIPS ${fips}: REP ${fmt(v.REP)} • DEM ${fmt(v.DEM)} • IND ${fmt(v.IND)}</div>`
+        ).join('')
+      ) : '';
+
+      const distHtml = dRows.length ? (
+        '<div class="mono" style="opacity:.7;margin:10px 0 2px">Districts</div>' +
+        dRows.map(([did, v]) =>
+          `<div class="item mono">District ${did}: REP ${fmt(v.REP)} • DEM ${fmt(v.DEM)} • IND ${fmt(v.IND)}</div>`
+        ).join('')
+      ) : '';
+
+      ovrList.innerHTML = countyHtml + distHtml;
+    }
+  }catch(e){
+    ovrList.innerHTML = '<div class="item mono">(Could not fetch /overrides) — showing none.</div>';
+  }
+
+  // Also refresh the S 2026 subpanel list
+  await refreshSOverridesUI();
+}
+
+// -------------- Heartbeat --------------
+async function heartbeat(){
+  try{
+    const m = await api('/metrics');
+    statusEl.textContent = `rpm=${m.calls_per_minute} • total=${m.total_calls}`;
+  }catch(_){ /* ignore */ }
+}
+
+// -------------- Init --------------
+setOfficeUI();
+loadStates().then(async ()=>{
+  await loadGeo((stateSel.options[0]||{}).value);
+  await refreshOverrides();
+});
+setInterval(heartbeat, 1000);
+
+</script>
+</body>
+</html>
