@@ -30,23 +30,16 @@
     }
 
     
-    /* URW DIN Demi (regular width) */
     @font-face{
       font-family: "URWDIN";
-      src: url("../fonts/URWDIN-Demi.otf") format("opentype");
-      font-weight: 600;            /* Demi = ~600 */
+      src: url("../fonts/URWDIN-Bold.otf") format("opentype");
+      font-weight: 700;   /* Bold */
       font-style: normal;
       font-display: swap;
     }
 
-    /* Optional: SemiCondensed Demi, if you decide to use it */
-    @font-face{
-      font-family: "URWDIN-SC";
-      src: url("../fonts/URWDINSemiCond-Demi.otf") format("opentype");
-      font-weight: 600;
-      font-style: normal;
-      font-display: swap;
-    }
+
+
 
 
   /* viewport + box model */
@@ -56,11 +49,13 @@
     padding: 0;
     width: 100%;
     height: 100%;
-    overflow: hidden;               /* no page scrollbars */
+    overflow: hidden;
     background: #ffffff url('../images/background.gif') center / cover no-repeat fixed;
     color: #ffffff;
-    font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--header-font);
+    font-weight: 700;
   }
+
 
   /* fixed header height so stage can subtract it exactly */
   header{
@@ -127,7 +122,7 @@
       top: calc(var(--header-h) + 10vh);     /* sit just under the header */
       left: calc(var(--gap) + 10vw);
       width: var(--left-w);
-      height: 56vh;          /* << fixed height */
+      height: 69vh;          /* << fixed height  h123 */
       z-index: 30;
       background: transparent;
       color: #000;
@@ -150,7 +145,7 @@
       right: 0;
       bottom: 0;                  /* ...to very bottom */
       width: var(--right-w);
-      z-index: 1000;
+      z-index: 2000;
       background: var(--card);
       border: 0;
       border-radius: 0;           /* squared edges since it spans full height */
@@ -183,7 +178,18 @@
   }
 
   .vertical-buttons { display:block; flex-direction:column; gap:6px; margin-bottom:10px; }
-  .vertical-buttons button { width:100%; text-align:center; }
+  .vertical-buttons button {
+    width: 100%;
+    display: flex;                /* centers text vertically */
+    align-items: center;
+    justify-content: center;
+    line-height: .95;             /* trims extra leading */
+    padding: 8px 10px 6px;        /* 1px less bottom = optically centered */
+    font-family: var(--header-font);
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
 
   /* Year group (stacked like your office/race stack) */
   #yearButtons { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
@@ -286,7 +292,7 @@
       --gap: clamp(8px, 1.6svh, 20px);
 
       /* left panel width scales with viewport */
-      --left-w: clamp(280px, 22vw, 420px);
+      --left-w: clamp(280px, 28vw, 1420px); /* w123 */
 
       /* right rail width */
       --right-w: clamp(56px, 5vw, 96px);
@@ -320,7 +326,7 @@
     .left-panel{
       top: calc(var(--header-h) + var(--gap) + var(--left-panel-extra-top));
       bottom: var(--gap);
-      left: calc(var(--gap) + 10vw);    /* the “move right 1vw” you wanted */
+      left: calc(var(--gap) + 6vw);    /* the “move right 1vw” you wanted l123 */
       width: var(--left-w);
       border-radius: 0;
     }
@@ -436,7 +442,7 @@
 
       /* typography */
       text-transform: uppercase;
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       font-weight: 700;
       letter-spacing: .08em;
       line-height: 1;
@@ -485,16 +491,16 @@
 
     /* BIG condensed numbers like the mock */
     .cand-overlay .pct .num{
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       font-weight:700;
-      font-size: clamp(36px, 3.0vw, 66px);
+      font-size: clamp(48px, 3.6vw, 88px);
     }
 
     /* Smaller, tucked percent sign */
     .cand-overlay .pct .pct-sign {
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       font-weight:700;
-      font-size: clamp(18px, 2.2vw, 32px);
+      font-size: clamp(24px, 2.6vw, 40px);
       transform: translateY(-50%);   /* use % so it scales with font size */
       opacity:.98;
     }
@@ -502,7 +508,7 @@
 
     /* Vote count directly underneath */
     .cand-overlay .votes{
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       font-weight:600;
       font-variant-numeric: tabular-nums lining-nums;
       letter-spacing:.25px;
@@ -518,7 +524,7 @@
       right:10px;
       text-align:right;
       text-transform:uppercase;
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       line-height:.9;
       filter: drop-shadow(0 2px 8px rgba(0,0,0,.30)) drop-shadow(0 0 2px rgba(0,0,0,.25));
       pointer-events:none;
@@ -634,10 +640,10 @@
     .percentin-bolt{
       position: fixed;
       /* align x with the left panel */
-      left: calc(var(--gap) + 9.65vw);
+      left: calc(var(--gap) + 5.5vw);
 
       /* sit just UNDER the left panel, which ends at bottom: var(--gap) */
-      bottom: calc(var(--gap) + 16vh);
+      bottom: calc(var(--gap) + 3vh); /* pct123 */
 
       /* optional: match the panel width (keeps the lockup visually tied to it) */
       width: var(--left-w);
@@ -679,7 +685,7 @@
     .party-row{ text-align:left; }
 
     .party-name{
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       font-weight:700;
       text-transform:uppercase;
       letter-spacing:.06em;
@@ -689,7 +695,7 @@
     }
 
     .party-count{
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       font-weight:700;
       line-height:.82;
       font-variant-numeric: tabular-nums lining-nums;
@@ -736,7 +742,7 @@
       background: transparent;
       color:#0a0a0a;
       text-transform: uppercase;
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       font-weight: 700;
       letter-spacing: .06em;
       font-size: clamp(40px, 8vw, 140px);
@@ -832,8 +838,9 @@
     
 
     .legend-strip .cell{
-      padding: 7px 12px;
-      font-family: "Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        padding: 10px 12px 5px;
+      display: flex; align-items: center;
+      font-family: "UDW", system-ui, sans-serif;
       font-weight: 700;
       font-size: clamp(12px, 1.15vw, 16px);
       letter-spacing: .06em;
@@ -842,6 +849,13 @@
       line-height: 1;
       white-space: nowrap;
     }
+
+
+
+
+
+
+
 
     /* subtle vertical separators (optional) */
     .legend-strip{
@@ -883,7 +897,7 @@
     }
 
     .percentin-bolt .big{
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       font-weight:700;
       line-height:.85;
       font-variant-numeric: tabular-nums lining-nums;
@@ -899,7 +913,7 @@
     }
 
     .percentin-bolt .label{
-      font-family:"Oswald", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--header-font);
       font-weight:700;
       text-transform: uppercase;
       letter-spacing:.12em;
@@ -1032,7 +1046,7 @@
         #headerLocation::after{
           left: 0px;
           right: auto;
-          width: clamp(720px, 77.5vw, 1400px);
+          width: clamp(720px, 82vw, 2000px);
         }
 
 
@@ -1045,7 +1059,7 @@
 
     
     :root{
-      --header-left-offset: clamp(9.71vw, 2vw, 40px);
+      --header-left-offset: clamp(0vw, 6vw, 4000px);
     }
 
     #penBtn.active {
@@ -1071,6 +1085,19 @@
       fill: #fff;
       text-shadow: 0 1px 0 rgba(0,0,0,.15);
     }
+    
+    /* City tag text: center vertically + all caps */
+    .city-label text{
+      font-family: var(--header-font);
+      font-weight: 700;
+      text-transform: uppercase;     /* make caps */
+      dominant-baseline: middle;     /* center on its y */
+      alignment-baseline: middle;    /* Safari fallback */
+      line-height: 1;
+      transform: translateY(0.15em);/* tiny lift to counter DIN’s descent */
+      letter-spacing: .02em;         /* optional: steadier caps */
+    }
+
 
     #menuBtn { font-size: 18px; }
 
@@ -2412,7 +2439,7 @@
    
 
     :root{
-      --cand-overlay-bottom: 12px;   /* ← tweak this number to taste */
+      --cand-overlay-bottom: 15px;   /* ← tweak this number to taste */
     }
 
     /* change this existing rule */
@@ -2452,12 +2479,56 @@
     }
 
     /* Hide FIRST/LAST overlay on all candidate cards */
-    .cand-name { display:none !important; }
+
+    
+    /* Make card images fill the left panel width */
+    .left-panel .cand-card img{
+      width: 100% !important;
+      height: auto !important;
+    }
+
+    /* Optionally neutralize the viewport-based clamp for these */
+    .left-panel .cand-item img{
+      width: 100% !important;
+      height: auto !important;
+    }
+
+    /* header sits on top */
+    header { position: relative; z-index: 1001; }
+
+    /* whiteout image sits under header, over the background GIF */
+    #whiteout{
+        position: fixed;
+        top: 0vh;              /* nudge as needed */
+        left: 5vw;
+        width: 420px;           /* size to taste */
+        height: 10vh;
+        background: url("../images/whiteout.png") no-repeat left top / contain; /* your file path */
+        pointer-events: none;   /* don’t block clicks */
+        z-index: 1000;          /* < header (1001), > page background */
+        transform: scale(2);          /* ← increase to taste */
+        transform-origin: top left;
+    }
+
+    .cand-card .pct   { margin-bottom: 6px; }  /* % line */
+    
+     .cand-name { display:none !important; }  /* hide names */
+     
+     /* Force URWDIN Bold everywhere (last rule wins) */
+     body, body * {
+       font-family: var(--header-font) !important;
+       font-weight: 700 !important;
+     }
+
     
 </style>
 
 </head>
 <body>
+    
+    <!-- Whiteout overlay (under header) -->
+    <div id="whiteout" aria-hidden="true"></div>
+
     <header>
       <!-- Top line: logo | year | race -->
       <div class="header-topline">
@@ -2672,58 +2743,125 @@
 <script>
     
     // === Fail-once image guard → permanently redirect to other.png ===
-    const FAILED_IMG_URLS = new Set();
+    // === Resilient headshot loader: fallback now, retry later ===================
     const OTHER_FALLBACK = "../images/other.png";
 
+    // url -> { count, last }  (failure history)
+    const IMG_FAILS = new Map();
+    const MAX_RETRIES   = 3;           // total attempts per URL before we give up for a while
+    const COOLDOWN_MS   = 20_000;      // wait this long before the next try
+    const BLACKOUT_MS   = 10 * 60_000; // after hitting MAX_RETRIES, suppress for this long
+    const BUST_PARAM    = "_retry";    // query key to bypass caches
+
     function normUrl(u){
-      try { return new URL(String(u || ''), document.baseURI).href; }
-      catch { return String(u || ''); }
+      try { return new URL(String(u||''), document.baseURI).href; }
+      catch { return String(u||''); }
+    }
+    function addBust(u, n){
+      try {
+        const url = new URL(u, document.baseURI);
+        url.searchParams.set(BUST_PARAM, String(n));
+        return url.href;
+      } catch { return u + (u.includes("?") ? "&" : "?") + `${BUST_PARAM}=${n}`; }
+    }
+    function shouldBlackout(u){
+      const rec = IMG_FAILS.get(u);
+      if (!rec) return false;
+      if (rec.count < MAX_RETRIES) return false;
+      return (Date.now() - rec.last) < BLACKOUT_MS;
+    }
+    function nextRetrySrc(u){
+      const rec = IMG_FAILS.get(u) || {count:0,last:0};
+      const now = Date.now();
+      if (rec.count >= MAX_RETRIES && (now - rec.last) < BLACKOUT_MS) return null;
+      if ((now - rec.last) < COOLDOWN_MS) return null;
+      const nextCount = Math.min(rec.count + 1, MAX_RETRIES);
+      IMG_FAILS.set(u, { count: nextCount, last: now });
+      return addBust(u, nextCount);
     }
 
-    // Learn failing URLs + fix the current element immediately
+    // 1) Quietly record successes so future sets aren't blocked
+    window.addEventListener('load', (ev) => {
+      const img = ev.target;
+      if (!(img instanceof HTMLImageElement)) return;
+      const ok = normUrl(img.currentSrc || img.src);
+      if (ok) IMG_FAILS.delete(ok);
+    }, true);
+
+    // 2) On error: swap to fallback immediately, schedule a retry when allowed
     document.addEventListener('error', (ev) => {
       const img = ev.target;
       if (!(img instanceof HTMLImageElement)) return;
+
       const bad = normUrl(img.currentSrc || img.src);
-      if (bad) FAILED_IMG_URLS.add(bad);
-      img.onerror = null;                     // prevent loops
-      img.dataset.fallbackApplied = '1';
-      img.src = OTHER_FALLBACK;               // immediate swap
-      ev.stopImmediatePropagation();          // keep console quiet after first
+      if (!bad) return;
+
+      // mark failure moment
+      const rec = IMG_FAILS.get(bad) || { count: 0, last: 0 };
+      IMG_FAILS.set(bad, { count: rec.count + 1, last: Date.now() });
+
+      // show fallback now (no flash of broken image)
+      if (img.src !== OTHER_FALLBACK) {
+        img.dataset.fallbackApplied = "1";
+        img.onerror = null; // stop loops on fallback itself
+        img.src = OTHER_FALLBACK;
+      }
+
+      // if we can try again later, schedule a background pre-decode and then swap atomically
+      const trySrc = nextRetrySrc(bad);
+      if (!trySrc) return;
+
+      // background probe
+      const probe = new Image();
+      probe.decoding = "async";
+      probe.loading = "eager";
+      probe.addEventListener('load', () => {
+        // success → clear failure memory and swap in one frame
+        IMG_FAILS.delete(bad);
+        requestAnimationFrame(() => {
+          img.dataset.fallbackApplied = "";
+          img.src = trySrc; // has a cache-bust, should hit the newly good URL
+        });
+      }, { once: true });
+      probe.addEventListener('error', () => {
+        // leave fallback up; another retry will be allowed after COOLDOWN_MS
+      }, { once: true });
+
+      // start probe after the cooldown window (so we don't hammer immediately)
+      setTimeout(() => { probe.src = trySrc; }, COOLDOWN_MS);
     }, true);
 
-    // Intercept future assignments: img.src = "...";
+    // 3) Intercept future sets: only hard-block while inside a blackout window
     (() => {
       const d = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
-      if (!d?.set) return;
-      Object.defineProperty(HTMLImageElement.prototype, 'src', {
-        configurable: true, enumerable: d.enumerable,
-        get(){ return d.get.call(this); },
-        set(v){
-          const u = normUrl(v);
-          if (FAILED_IMG_URLS.has(u)) {
-            this.dataset.fallbackApplied = '1';
-            return d.set.call(this, OTHER_FALLBACK);
+      if (d?.set) {
+        Object.defineProperty(HTMLImageElement.prototype, 'src', {
+          configurable: true, enumerable: d.enumerable,
+          get(){ return d.get.call(this); },
+          set(v){
+            const u = normUrl(v);
+            if (u && shouldBlackout(u)) {
+              this.dataset.fallbackApplied = "1";
+              return d.set.call(this, OTHER_FALLBACK);
+            }
+            return d.set.call(this, v);
           }
-          return d.set.call(this, v);
-        }
-      });
-    })();
+        });
+      }
 
-    // Intercept setAttribute('src', "...") too
-    (() => {
-      const orig = Element.prototype.setAttribute;
+      const origSetAttr = Element.prototype.setAttribute;
       Element.prototype.setAttribute = function(name, val){
         if (this instanceof HTMLImageElement && String(name).toLowerCase() === 'src') {
           const u = normUrl(val);
-          if (FAILED_IMG_URLS.has(u)) {
-            this.dataset.fallbackApplied = '1';
-            return orig.call(this, 'src', OTHER_FALLBACK);
+          if (u && shouldBlackout(u)) {
+            this.dataset.fallbackApplied = "1";
+            return origSetAttr.call(this, 'src', OTHER_FALLBACK);
           }
         }
-        return orig.call(this, name, val);
+        return origSetAttr.call(this, name, val);
       };
     })();
+
 
     
     // === Card allowlist (put this near your image helpers) =================
@@ -2768,19 +2906,20 @@
 
     // Sum shown candidates and add a single "Other" bucket with remaining votes
     function withAllowedPlusOther(candidates, total){
-      const shown = onlyAllowed(candidates);
+      const shown = onlyAllowed(candidates).slice();
       const shownVotes = shown.reduce((a,c)=> a + (c.votes || 0), 0);
       const otherVotes = Math.max(0, (total || 0) - shownVotes);
 
-      // sort only the allow-listed candidates
+      // sort allowed candidates by votes
       shown.sort((a,b)=> (b.votes||0) - (a.votes||0));
 
-      // append “Other” (if present) at the end, regardless of its votes
+      // append a single "Other" row LAST (pin to bottom)
       if (otherVotes > 0){
         shown.push({ name: 'Other', party: 'IND', votes: otherVotes, _isOther: true });
       }
       return shown;
     }
+
 
     window.SHOW_ALL_CANDIDATES = false;
     const _orig_withAllowedPlusOther = withAllowedPlusOther;
@@ -4815,7 +4954,9 @@
       const leadPct = total ? (100 * leadVotes / total) : 0;
       const fmt = n => Number(n || 0).toLocaleString('en-US');
 
-      return `<div class="leadline">${leadPct.toFixed(1)}% ${fmt(leadVotes)} AHEAD</div>`;
+      // percent or votes
+      // return `<div class="leadline">${leadPct.toFixed(1)}% ${fmt(leadVotes)} AHEAD</div>`;
+      return `<div class="leadline">${leadPct.toFixed(1)}% AHEAD</div>`;
     }
 
 
@@ -5249,54 +5390,6 @@ const callsEl = document.getElementById("calls") || { textContent: "" };
 const errsEl  = document.getElementById("errs")  || { textContent: "" };
 const logBody = document.getElementById("logBody") || { insertAdjacentHTML(){}, innerHTML:"" };
 const countyInfo = document.getElementById("countyInfo");
-// === Atomic candidate-card swap: preload images, then swap in one commit ===
-const PANEL_SWAP = { pending: 0 };
-
-function __extractImgSrcsFromHTML(html) {
-  const wrap = document.createElement('div');
-  wrap.innerHTML = html;
-  const imgs = Array.from(wrap.querySelectorAll('img'));
-  // resolve to absolute URLs so cache de-dupes
-  const a = document.createElement('a');
-  return imgs.map(img => {
-    try { a.href = img.getAttribute('src') || ''; return a.href; }
-    catch { return img.getAttribute('src') || ''; }
-  }).filter(Boolean);
-}
-
-function __preloadUrls(urls) {
-  const seen = new Set();
-  const tasks = [];
-  for (const u of urls) {
-    if (seen.has(u)) continue;
-    seen.add(u);
-    tasks.push(new Promise(res => {
-      const im = new Image();
-      // important: decode resolves after the image is fully ready to paint
-      im.decoding = 'async';
-      im.onload = () => res();
-      im.onerror = () => res();   // fail closed: never block the swap
-      im.src = u;
-    }));
-  }
-  return Promise.allSettled(tasks);
-}
-
-/**
- * Build the next panel off-DOM, preload all <img> sources, then swap atomically.
- * Works for any cards HTML (state, county, district, national).
- */
-async function setPanelHTML(html, { afterSwap } = {}) {
-  const me = ++PANEL_SWAP.pending;
-  const urls = __extractImgSrcsFromHTML(html);
-  await __preloadUrls(urls);
-  if (me !== PANEL_SWAP.pending) return; // a newer render won the race; drop this one
-  countyInfo.innerHTML = html;
-  if (typeof afterSwap === 'function') {
-    try { afterSwap(); } catch {}
-  }
-}
-
 let projection, path, countyShapes, countyData = {}, lastLogSeq = 0;
 let districtShapes;
 
@@ -5583,7 +5676,7 @@ const CITY_INDEX = {
 };
 
 
-    const CITY_MIN_K = 2.2;   // hide labels below this zoom (tweak to taste)
+    const CITY_MIN_K = 5;   // hide labels below this zoom (tweak to taste)
 
 
 const inkLayer = rootG.append("g")
@@ -5772,7 +5865,6 @@ function imgForCandidate(name){
         // one-time global log; suppress the rest
         if (!FIRST_IMG_ERROR_LOGGED) {
           FIRST_IMG_ERROR_LOGGED = true;
-          console.warn('[img] missing headshot → swapping to party icon once');
         } else {
           ev.stopImmediatePropagation();
         }
@@ -6742,8 +6834,9 @@ function stopLivePolling(){
         }
       }
 
-      setPanelHTML(`<div class="cand-list">${stack}</div>`);
-
+      countyInfo.innerHTML = `
+        <div class="cand-list">${stack}</div>
+      `;
     }
 
 
@@ -8400,8 +8493,7 @@ Promise.all([
         }
       }
 
-      setPanelHTML(`<div class="cand-list">${stack}</div>`);
-
+      countyInfo.innerHTML = `<div class="cand-list">${stack}</div>`;
     }
 
 
@@ -9038,8 +9130,9 @@ async function getDataFromCache(){
 
       
       
-      setPanelHTML(`<div class="cand-list">${stack}</div>`);
-
+      countyInfo.innerHTML = `
+        <div class="cand-list">${stack}</div>
+      `;
     }
 
 
@@ -9099,11 +9192,15 @@ async function getDataFromCache(){
         : aggregateStateCandidates(statefp);
         const candSrc = withAllowedPlusOther(agg.candidates, agg.total);
 
-          if (!candSrc.length){ ; return; }
-      if (!agg.total){
-        countyInfo.innerHTML = `<p>No cached data for ${usps}</p>`;
-        return;
-      }
+        // Keep the quick-exit if there are literally no candidates to render.
+        if (!candSrc.length){ ; return; }
+
+        // Allow all-zero totals to render; only bail if total is missing (null/undefined/NaN), not 0.
+        if (agg.total == null || Number.isNaN(agg.total)) {
+          countyInfo.innerHTML = `<p>No cached data for ${usps}</p>`;
+          return;
+        }
+
 
       // HOUSE @ state level (2026): show called seat counts by party (like national)
       // HOUSE @ state level:
@@ -9136,8 +9233,7 @@ async function getDataFromCache(){
                 ${ leaderLineHTML(i, agg.total, candSrc) }
               </div>`;
           }).join("");
-          setPanelHTML(`<div class="cand-list">${stack}</div>`);
-
+          countyInfo.innerHTML = `<div class="cand-list">${stack}</div>`;
           return;
         }
 
@@ -9325,8 +9421,9 @@ async function getDataFromCache(){
       // === end no-flash block ===
 
 
-      setPanelHTML(`<div class="cand-list">${stack}</div>`);
-
+      countyInfo.innerHTML = `
+        <div class="cand-list">${stack}</div>
+      `;
     }
 
     function renderSenateSeatDetail(usps){

@@ -32,7 +32,7 @@ _retries = Retry(
 HTTP.mount("http://", HTTPAdapter(max_retries=_retries))
 HTTP.mount("https://", HTTPAdapter(max_retries=_retries))
 
-AP_API_KEY   = os.getenv("AP_API_KEY", os.getenv("AP_KEY", "123abc"))
+AP_API_KEY   = os.getenv("AP_API_KEY", os.getenv("AP_KEY", "ziwbrof5ondu4qq67ej4cz73to"))
 
 # Identify the client and carry AP key like app-with-key.py
 HTTP.headers.update({
@@ -147,7 +147,7 @@ def _apply_psg_override(usps, parsed_state_blob, office, race_type):
     # Current (API) view
     rc = parsed_state_blob.setdefault("race_call", {})
     cur_status = (rc.get("status") or "No Decision").strip()
-    cur_party  = ((rc.get("winner") or {}).get("party") or "").strip().upper()
+    cur_party  = _norm_party((rc.get("winner") or {}).get("party"))
     sticky     = bool(ov.get("sticky"))
 
     # If API already says Called with a party, ignore non-sticky overrides
@@ -159,7 +159,7 @@ def _apply_psg_override(usps, parsed_state_blob, office, race_type):
         rc["status"] = ov["status"]
     if ov.get("winner"):
         wname = ov["winner"].get("name")
-        wpart = (ov["winner"].get("party") or "").strip().upper() or None
+        wpart = _norm_party(ov["winner"].get("party")) or None
         rc["winner"] = {"name": wname, "party": wpart}
     rc["source"] = "override"
 
@@ -219,7 +219,7 @@ def _apply_house_overrides(usps, parsed_districts, office, race_type):
             if payload.get("winner"):
                 rc["winner"] = {
                     "name":  payload["winner"].get("name"),
-                    "party": (payload["winner"].get("party") or "").strip().upper() or None
+                    "party": _norm_party(payload["winner"].get("party")) or None
                 }
             rc["source"] = "override"
 
@@ -238,10 +238,10 @@ def interpret_race_type(race_type: str) -> dict:
 
 # ---------------- Tunables (env) ----------------
 # Statewide offices (P/S/G) endpoint:
-BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "http://localhost:5037/v2/elections"))
+BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "https://api.ap.org/v3/elections"))
 # BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "http://127.0.0.1:15037/v2/elections"))
 # House districts endpoint:
-BASE_URL_D    = os.getenv("BASE_URL_D", "http://localhost:5037/v2/districts")
+BASE_URL_D    = os.getenv("BASE_URL_D", "https://api.ap.org/v3/elections")
 # BASE_URL_D    = os.getenv("BASE_URL_D", "http://127.0.0.1:15037/v2/districts")
 
 
@@ -269,9 +269,9 @@ OFFICES    = [x.strip().upper() for x in os.getenv("OFFICES", "G,A,M,H").split("
 RACE_TYPES = [x.strip().upper() for x in os.getenv("RACE_TYPES", "G,S").split(",") if x.strip()]
 
 # Pace the hub to suit your infra:
-MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "10"))
-STATES_PER_CYCLE       = int(os.getenv("STATES_PER_CYCLE", "50"))
-DELAY_BETWEEN_REQUESTS = float(os.getenv("DELAY_BETWEEN_REQUESTS",".1"))
+MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "1"))
+STATES_PER_CYCLE       = int(os.getenv("STATES_PER_CYCLE", "50"))   # any
+DELAY_BETWEEN_REQUESTS = float(os.getenv("DELAY_BETWEEN_REQUESTS","120"))
 DELAY_BETWEEN_CYCLES   = float(os.getenv("DELAY_BETWEEN_CYCLES",".1"))
 TIMEOUT_SECONDS        = float(os.getenv("TIMEOUT_SECONDS","15.0"))
 
@@ -354,6 +354,10 @@ OFFICE_STATE_FILTERS = {
     "G": [s.strip().upper() for s in os.getenv("G_STATES", "VA,NJ").split(",") if s.strip()],
     "H": [s.strip().upper() for s in os.getenv("H_STATES", ",".join(ALL_STATES)).split(",") if s.strip()],
 }
+
+# NYC borough FIPS (Bronx, Kings, New York, Queens, Richmond)
+NYC_BOROUGH_FIPS = {"36005","36047","36061","36081","36085"}
+
 
 def _states_for_office(office: str):
     of = (office or "").upper()
@@ -439,7 +443,7 @@ def _build_url(state: str, office: str, race_type: str) -> str:
     else:
         date = GENERAL_DATE if rt["mode"] == "general" else PRIMARY_DATE
     # now includes &level=ru (or whatever LEVEL_PARAM is)
-    return f"{base}/{date}?statepostal={state}&officeId={office_u}&raceTypeId={rt['raw']}&level={LEVEL_PARAM}"
+    return f"{base}/{date}?statepostal={state}&officeId={office_u}&raceTypeId={rt['raw']}&level={LEVEL_PARAM}&resultstype=t"
 
 def _looks_like_xml(s: str) -> bool:
     if not isinstance(s, str):
@@ -448,6 +452,28 @@ def _looks_like_xml(s: str) -> bool:
     if head.startswith("<!doctype html") or head.startswith("<html"):
         return False
     return head.startswith("<")
+    
+# --- Party normalization (canonical short tags) ---
+def _norm_party(s: str) -> str:
+    if not s:
+        return "IND"
+    u = str(s).strip().upper()
+    aliases = {
+        # Democrats
+        "DEM": "DEM", "DEMOCRAT": "DEM", "DEMOCRATIC": "DEM", "D": "DEM",
+        # Republicans
+        "GOP": "REP", "REPUBLICAN": "REP", "R": "REP", "REP": "REP",
+        # Independents / Other
+        "INDEPENDENT": "IND", "IND": "IND", "OTHER": "IND", "OTH": "IND",
+        "NP": "NP", "NPA": "NP", "NONPARTISAN": "NP", "NO PARTY": "NP",
+        # Common minors
+        "CON": "CON", "CONSERVATIVE": "CON",
+        "LIB": "LIB", "LIBERTARIAN": "LIB",
+        "GRN": "GRN", "GREEN": "GRN",
+        # Add more aliases as needed...
+    }
+    return aliases.get(u, u)
+
     
 def _is_quota_403(resp) -> bool:
     """
@@ -477,64 +503,90 @@ def _parse_state_ru(xml_text: str, usps: str, office: str, race_type: str) -> di
         return None
     try:
         root = ET.fromstring(xml_text)
-    except ET.ParseError as e:
-        return None  # signal parse failure to caller
-    #
-    # Require at least one ReportingUnit; otherwise treat as malformed/empty
-    rus = root.findall(".//ReportingUnit")
-    if not rus:
+    except ET.ParseError:
         return None
-    
-    
-    state_status = (root.attrib.get("RaceCallStatus") or "No Decision").strip()
-    wf = (root.attrib.get("WinnerFirst") or "").strip()
-    wl = (root.attrib.get("WinnerLast") or "").strip()
-    wp = (root.attrib.get("WinnerParty") or "").strip().upper()
-    winner_full = (wf + " " + wl).strip() if (wf or wl) else None
 
-    # If not "Called", do not carry a winner from the API
+    # --- Choose the correct <Race> block ---
+    races = root.findall(".//Race")
+    race = None
+    if (office or "").upper() == "M" and (usps or "").upper() == "NY":
+        # Prefer SeatName="New York City"
+        for r in races:
+            if (r.attrib.get("SeatName","") or "").strip().lower().startswith("new york city"):
+                race = r
+                break
+    if race is None:
+        race = races[0] if races else None
+
+    # --- Race-level status & percent in (prefer EEVP) ---
+    state_status = (race.attrib.get("RaceCallStatus") if race is not None else None) or "No Decision"
+    percent = race.attrib.get("EEVP") if race is not None else None
+
+    # Pull state RU (relative to chosen Race); fall back to document if missing
+    state_ru = race.find("./ReportingUnit[@Level='state']") if race is not None else None
+    if state_ru is None:
+        state_ru = root.find(".//ReportingUnit[@Level='state']") or root.find(".//ReportingUnit[@ReportingUnitLevel='1']")
+    if not percent and state_ru is not None:
+        percent = state_ru.attrib.get("EEVP") or None
+        if not percent:
+            prec = state_ru.find("./Precincts")
+            if prec is not None:
+                percent = prec.attrib.get("ReportingPct")
+    out["percent_in"] = percent
+
+    # --- Winner (from the chosen Race's state RU only) ---
     winner_payload = None
-    if state_status == "Called" and (winner_full or wp):
-        winner_payload = {"name": winner_full or None, "party": wp or None}
+    if state_status == "Called" and state_ru is not None:
+        w_node = next((c for c in state_ru.findall("./Candidate") if (c.attrib.get("Winner") or "").upper() == "X"), None)
+        if w_node is not None:
+            first = (w_node.attrib.get("First") or "").strip()
+            last  = (w_node.attrib.get("Last") or "").strip()
+            party = _norm_party(w_node.attrib.get("Party"))
+            name  = (first + " " + last).strip()
+            winner_payload = {"name": name or None, "party": party or None}
+    out["race_call"] = {"status": state_status, "winner": winner_payload, "source": "api"}
 
-    out["race_call"] = {
-        "status": state_status,
-        "winner": winner_payload,
-        "source": "api"  # so we know where this came from
-    }
-
-
-    # Grab state-level PercentIn from <ElectionResults>
-    out["percent_in"] = root.attrib.get("PercentIn")
+    # --- County RUs (scope to chosen Race; fallback if needed) ---
+    rus = race.findall("./ReportingUnit[@Level='subunit']") if race is not None else []
+    if not rus:
+        rus = race.findall("./ReportingUnit[@ReportingUnitLevel='2']") if race is not None else []
+    if not rus:
+        rus = [ru for ru in root.findall(".//ReportingUnit") if ru.attrib.get("FIPSCode")]
 
     for ru in rus:
-        fips = (ru.attrib.get("FIPS") or "").zfill(5)
-        name = ru.attrib.get("Name") or "Unknown"
-        ru_percent = ru.attrib.get("PercentIn")
+        fips = (ru.attrib.get("FIPSCode") or ru.attrib.get("FIPS") or "").strip().zfill(5)
+        if not fips or fips == "00000":
+            continue
+
+        # NYC filter: keep only the 5 boroughs for NY Mayor
+        if (office or "").upper() == "M" and (usps or "").upper() == "NY":
+            if fips not in NYC_BOROUGH_FIPS:
+                continue
+
+        name = ru.attrib.get("Name") or f"FIPS {fips}"
+        ru_percent = ru.attrib.get("EEVP")
+        if not ru_percent:
+            prec = ru.find("./Precincts")
+            if prec is not None:
+                ru_percent = prec.attrib.get("ReportingPct")
+
         cands, total = [], 0
         for c in ru.findall("./Candidate"):
-            first = c.attrib.get("First","").strip()
-            last  = c.attrib.get("Last","").strip()
-            party = c.attrib.get("Party","").strip()
-            raw_v = (c.attrib.get("VoteCount", "0") or "0")
+            first = (c.attrib.get("First") or "").strip()
+            last  = (c.attrib.get("Last") or "").strip()
+            party = _norm_party(c.attrib.get("Party"))
+            raw_v = (c.attrib.get("VoteCount") or "0")
             try:
                 votes = int(raw_v)
             except (ValueError, TypeError):
                 prev = _get_prev_vote_county(usps, fips, party, office, race_type)
-                if prev is not None:
-                    votes = prev
-                    log(f"Non-numeric VoteCount='{raw_v}' {usps} {fips} party={party} -> using last cached {prev}", "WARN")
-                else:
-                    votes = 0
-                    log(f"Non-numeric VoteCount='{raw_v}' {usps} {fips} party={party} -> using 0 (no prior)", "WARN")
-            # 👇 notice these are OUTSIDE the try/except
+                votes = prev if prev is not None else 0
             total += votes
-            cands.append({"name": (first + " " + last).strip(),
-                          "party": party, "votes": votes})
+            cands.append({"name": (first + " " + last).strip(), "party": party, "votes": votes})
+
         out["counties"][fips] = {
             "state": usps, "fips": fips, "name": name,
-            "candidates": cands, "total": total,
-            "percent_in": ru_percent
+            "candidates": cands, "total": total, "percent_in": ru_percent
         }
     return out
 
@@ -569,7 +621,7 @@ def _parse_house_ru(xml_text: str, usps: str, office: str, race_type: str) -> di
         for c in ru.findall("./Candidate"):
             first = c.attrib.get("First","").strip()
             last  = c.attrib.get("Last","").strip()
-            party = c.attrib.get("Party","").strip()
+            party = _norm_party(c.attrib.get("Party"))
             raw_v = (c.attrib.get("VoteCount", "0") or "0")
             try:
                 votes = int(raw_v)
@@ -703,8 +755,9 @@ def _get_prev_vote_county(usps: str, fips: str, party: str, office: str, race_ty
         counties = state_blob.get("counties") or {}
         c = counties.get(fips)
         if not c: return None
+        want = _norm_party(party)
         for cand in c.get("candidates", []):
-            if cand.get("party") == party:
+            if _norm_party(cand.get("party")) == want:
                 try:
                     return int(cand.get("votes") or 0)
                 except Exception:
@@ -719,8 +772,9 @@ def _get_prev_vote_district(usps: str, did: str, party: str, office: str, race_t
         districts = state_blob.get("districts") or {}
         d = districts.get(did)
         if not d: return None
+        want = _norm_party(party)
         for cand in d.get("candidates", []):
-            if cand.get("party") == party:
+            if _norm_party(cand.get("party")) == want:
                 try:
                     return int(cand.get("votes") or 0)
                 except Exception:
