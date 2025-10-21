@@ -2769,6 +2769,10 @@
     
 <script>
     
+    // --- global kill switch for historic network fetches ---
+    window.HIST_FETCH_OFF = true;
+
+    
     // === Fail-once image guard → permanently redirect to other.png ===
     // === Resilient headshot loader: fallback now, retry later ===================
     const OTHER_FALLBACK = "../images/other.png";
@@ -6285,6 +6289,7 @@ function zoomOutOne(){
 
 
 function isHistoricMode() {
+    if (window.HIST_FETCH_OFF) return false;
   // P: 2016/2020/2024 GEN
   if (OFFICE === "P" && RACE === "G" && (YEAR === "2016" || YEAR === "2020" || YEAR === "2024")) return true;
   // G: 2016–2024 GEN (per your GOV_HIST_YEARS)
@@ -8660,6 +8665,13 @@ async function getJSON(url){
     
     // Load all available states for a given historic (year, office, race) into countyData (memoized)
     async function loadHistoricXML(year, office, race) {
+        if (window.HIST_FETCH_OFF) {
+          // ensure callers see "no data" without triggering network
+          const key = `${year}-${office}-${race}`;
+          HIST_CACHE[key] = {};   // empty memo
+          countyData = HIST_CACHE[key];
+          return;
+        }
       const key = `${year}-${office}-${race}`;
       if (HIST_CACHE[key]) { countyData = HIST_CACHE[key]; return; }
 
@@ -8717,6 +8729,7 @@ async function getJSON(url){
 
     let WARMED = false;
     async function warmHistoricPreload(){
+        if (window.HIST_FETCH_OFF) { WARMED = true; return; }
       if (WARMED) return;        // prevent duplicate runs
       WARMED = true;
 
