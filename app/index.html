@@ -17,7 +17,7 @@
   :root { --bg:#ffffff; --fg:#eaf0ff; --muted:#9fb3d1; --card:#14233d; --ok:#a5f3a5; --warn:#ffd79a; }
   
   :root {
-    --left-panel-extra-top: 14vh;  /* increase to move panel further down */
+    --left-panel-extra-top: 15vh;  /* increase to move panel further down */
   }
 
     :root{
@@ -643,7 +643,7 @@
       left: calc(var(--gap) + 5.5vw);
 
       /* sit just UNDER the left panel, which ends at bottom: var(--gap) */
-      bottom: calc(var(--gap) + 3vh); /* pct123 */
+      bottom: calc(var(--gap) + 2vh); /* pct123 */
 
       /* optional: match the panel width (keeps the lockup visually tied to it) */
       width: var(--left-w);
@@ -2500,9 +2500,9 @@
     #whiteout{
         position: fixed;
         top: 0vh;              /* nudge as needed */
-        left: 4.9vw;
+        left: 4.5vw;
         width: 420px;           /* size to taste */
-        height: 10.2vh;
+        height: 11.2vh;
         background: url("../images/whiteout.png") no-repeat left top / contain; /* your file path */
         pointer-events: none;   /* don’t block clicks */
         z-index: 1000;          /* < header (1001), > page background */
@@ -2523,13 +2523,13 @@
     /* Put this with your other root vars */
     :root{
       /* Bigger header top line (affects YEAR | RACE | pipes) */
-      --header-top-size: clamp(36px, 3.6vw, 104px);
+      --header-top-size: clamp(36px, 4.6vw, 104px);
     }
 
     /* Make the whole row heavier so all items match */
     .header-topline{
       font-weight: 900;            /* was 2800 */
-      letter-spacing: .08em;       /* a touch more punch (optional) */
+      letter-spacing: .02em;       /* a touch more punch (optional) */
     }
 
     /* Ensure the pipes inherit the same heft/size (they already do, just explicit) */
@@ -2540,12 +2540,52 @@
 
     /* bump the logo up slightly relative to the text */
     .header-topline .brand{
-      height: 1.0em;      /* was 36px — scales with .header-topline font-size */
+      height: .8em;      /* was 36px — scales with .header-topline font-size */
       width: auto;
       transform: translateY(-8px);  /* small baseline nudge */
       /* optional safety cap: max-height: 120px; */
     }
 
+    /* push the logo all the way to the right */
+    .header-topline .brand {
+      margin-left: auto;   /* ← this is the key */
+    }
+
+    /* hide the pipe characters */
+    .header-topline .sep {
+      display: none !important;
+    }
+
+    /* keep text left, shove logo all the way right */
+    .header-topline{ justify-content: flex-start; }           /* ensure left-align */
+    .header-topline .brand{ margin-left: auto; }              /* pushes logo right */
+
+    /* hide the pipes on the top line */
+    .header-topline .sep{ display: none !important; }
+
+    :root{
+      --logo-right-offset: clamp(8px, 7.5vw, 4000px); /* tweak to taste */
+    }
+
+    /* existing rule — just add margin-right */
+    .header-topline .brand{
+      margin-left: auto;
+      margin-right: var(--logo-right-offset);  /* ← nudge left */
+    }
+
+    :root{
+      --ntd-blue: #1f5fbf;   /* or your existing blue */
+      --ntd-red:  #d32f2f;   /* or your existing red  */
+    }
+
+    /* top line colors (IDs match the HTML) */
+    #headerYear { color: var(--ntd-red); }
+    #headerRace { color: var(--ntd-blue); }
+
+    /* keep logo on right, no pipes */
+    .header-topline { display:flex; align-items:center; }
+    .header-topline .brand { margin-left:auto; }
+    .header-topline .sep { display:none !important; }
 
     
 </style>
@@ -2559,11 +2599,12 @@
     <header>
       <!-- Top line: logo | year | race -->
       <div class="header-topline">
-        <img class="brand" src="../images/NTD_NEWS_HORIZONTAL_LOGO-2.png" alt="NTD News" />
+        
         <span class="sep">|</span>
         <span id="headerYear"></span>
         <span class="sep">|</span>
         <span id="headerRace"></span>
+ 
       </div>
 
       <!-- Location line with blue (above) and red (below) rules -->
@@ -5238,8 +5279,9 @@
       const locEl  = document.getElementById('headerLocation');
       if (!yearEl || !raceEl || !locEl) return;
 
+      // race names
       // Map office to display label
-      const OFFICE_SHORT = { P:'Presidential Race', G:'Governor', S:'Senate', H:'House', A:'Attorney General', M:'Mayor' };
+      const OFFICE_SHORT = { P:'Presidential Race', G:'\u00A0\u00A0Governor\'s Race', S:'Senate', H:'House', A:'\u00A0\u00A0Attorney General\'s Race', M:'\u00A0\u00A0Mayor\'s Race' };
 
       // BOP override text (keeps your current behavior)
       // BOP: top line shows just the office; the line between the bands shows “Balance of Power”
@@ -5271,8 +5313,9 @@
       }
 
 
-      yearEl.textContent = YEAR || '';
-      raceEl.textContent = OFFICE_SHORT[OFFICE] || 'Elections';
+      yearEl.textContent = YEAR || '';                    // e.g., "2025"
+      raceEl.textContent = OFFICE_SHORT[OFFICE] || 'Elections';  // e.g., "Governor’s Race"
+
 
       // Location line: state OR state | county
       let locationText = '';
