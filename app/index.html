@@ -365,7 +365,7 @@
       width: min(1400px, calc(100vw - var(--gutter-left) - var(--gutter-right)));
       margin-left:  var(--gutter-left);
       margin-right: var(--gutter-right);
-      margin-top: 5vh;
+      margin-top: 10vh;
       height: calc(100% - 0vh);
      /* margin-bottom: 400px; */
     }
@@ -2588,6 +2588,7 @@
     .header-topline .sep { display:none !important; }
 
     
+    
 </style>
 
 </head>
@@ -2809,6 +2810,10 @@
     
     
 <script>
+    
+    // move state frames upward a bit (fraction of SVG height)
+    const STATE_Y_BIAS_FRAC = 0.10;   // try 0.08–0.14
+
     
     // --- global kill switch for historic network fetches ---
     window.HIST_FETCH_OFF = true;
@@ -6207,7 +6212,9 @@ function zoomOutOne(){
     if (sf){
       focusStateByPrefix(selectedStateFP, sf);
       colorizeInstant(true);
-      zoomToFeature(sf, 8);
+      const hState2 = (+d3.select('#map').attr('height') || 0);
+      zoomToFeature(sf, 8, -STATE_Y_BIAS_FRAC * hState2);
+
       renderStatePanel(selectedStateFP);
     }
     return;
@@ -7066,7 +7073,7 @@ function stopLivePolling(){
 
     // 👇 your preferred starting view (use your values)
     const INITIAL_VIEW = d3.zoomIdentity
-      .translate(-60, -125)
+      .translate(-60, -175)
       .scale(1.2);
     
     
@@ -8107,8 +8114,10 @@ Promise.all([
       // counties are already built by focusStateByPrefix; zoom to just the borough cluster
       setTimeout(zoomToNYCBoroughs, 0);
     } else {
-      zoomToFeature(sd, 8);
+      const hState = (+d3.select('#map').attr('height') || 0);
+      zoomToFeature(sd, 8, -STATE_Y_BIAS_FRAC * hState);
     }
+
 
     renderStatePanel(prefix);
     updateHeaderTitle();
