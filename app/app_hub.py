@@ -273,7 +273,7 @@ MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "1"))
 STATES_PER_CYCLE       = int(os.getenv("STATES_PER_CYCLE", "50"))   # any
 DELAY_BETWEEN_REQUESTS = float(os.getenv("DELAY_BETWEEN_REQUESTS","20"))
 DELAY_BETWEEN_CYCLES   = float(os.getenv("DELAY_BETWEEN_CYCLES",".1"))
-TIMEOUT_SECONDS        = float(os.getenv("TIMEOUT_SECONDS","10.0"))
+TIMEOUT_SECONDS        = float(os.getenv("TIMEOUT_SECONDS","15.0"))
 
 # Snapshot in ./temp (project root)
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -535,6 +535,7 @@ def _parse_state_ru(xml_text: str, usps: str, office: str, race_type: str) -> di
     out["percent_in"] = percent
 
     # --- Winner (from the chosen Race's state RU only) ---
+    # --- Winner (from the chosen Race's state RU only) ---
     winner_payload = None
     if state_status == "Called" and state_ru is not None:
         w_node = next((c for c in state_ru.findall("./Candidate") if (c.attrib.get("Winner") or "").upper() == "X"), None)
@@ -545,6 +546,20 @@ def _parse_state_ru(xml_text: str, usps: str, office: str, race_type: str) -> di
             name  = (first + " " + last).strip()
             winner_payload = {"name": name or None, "party": party or None}
     out["race_call"] = {"status": state_status, "winner": winner_payload, "source": "api"}
+
+    # NEW: read the state topline straight from the Level="state" RU
+    state_topline, state_total = [], 0
+    if state_ru is not None:
+        for c in state_ru.findall("./Candidate"):
+            first = (c.attrib.get("First") or "").strip()
+            last  = (c.attrib.get("Last") or "").strip()
+            party = _norm_party(c.attrib.get("Party"))
+            votes = int(c.attrib.get("VoteCount") or "0")
+            state_total += votes
+            state_topline.append({"name": (first + " " + last).strip(), "party": party, "votes": votes})
+    out["state_topline"] = state_topline
+    out["state_total"]   = state_total
+
 
     # --- County RUs (scope to chosen Race; fallback if needed) ---
     rus = race.findall("./ReportingUnit[@Level='subunit']") if race is not None else []
@@ -873,6 +888,8 @@ def _fetch_state(usps: str, office: str, race_type: str):
                     "percent_in": parsed.get("percent_in"),
                     "counties": parsed["counties"],
                     "race_call": parsed.get("race_call")       # may be overridden
+                    "state_topline": parsed.get("state_topline"),
+                    "state_total":   parsed.get("state_total"),
                 }
 
             bucket["updated"] = time.time()
@@ -1029,6 +1046,8 @@ def cache_ru():
                     "updated": blob["updated"],
                     "percent_in": d.get("percent_in"),
                     "state_percent_in": blob.get("percent_in"),
+                    "state_topline": blob.get("state_topline") or [],
+                    "state_total":   blob.get("state_total")   or 0,
                     # NEW:
                     "race_call_status": rc.get("status") or "No Decision",
                     "race_called_winner_name": win.get("name"),

@@ -9279,10 +9279,27 @@ async function getDataFromCache(){
 
         return; // ← do not render any data rows
       }
-      const agg  = (OFFICE === 'H')
-        ? aggregateStateCandidatesHouse(statefp)
-        : aggregateStateCandidates(statefp);
-        const candSrc = withAllowedPlusOther(agg.candidates, agg.total);
+      let agg;
+      if (OFFICE === 'H') {
+        agg = aggregateStateCandidatesHouse(statefp);
+      } else {
+        // Prefer the hub-provided Level="state" topline if available
+        // (these come from /cache/ru rows via state_topline/state_total)
+        const sampleRow = Object.values(countyData || {}).find(
+          r => r && typeof r.fips === 'string' && r.fips.startsWith(statefp)
+        );
+        if (sampleRow && Array.isArray(sampleRow.state_topline) && sampleRow.state_topline.length) {
+          agg = {
+            total: Number(sampleRow.state_total || 0),
+            candidates: sampleRow.state_topline
+          };
+        } else {
+          // Fallback: old behavior (sum all counties)
+          agg = aggregateStateCandidates(statefp);
+        }
+      }
+      const candSrc = withAllowedPlusOther(agg.candidates, agg.total);
+
 
         // Keep the quick-exit if there are literally no candidates to render.
         if (!candSrc.length){ ; return; }
