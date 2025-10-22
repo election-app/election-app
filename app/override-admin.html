@@ -194,6 +194,8 @@
             <option value="P">President (P)</option>
             <option value="S">Senate (S)</option>
             <option value="G">Governor (G)</option>
+            <option value="A">Attorney General (A)</option>
+            <option value="M">Mayor (M)</option>
             <option value="H">House (H)</option>
           </select>
         </div>
@@ -269,7 +271,14 @@
 <script>
 /* ---------- Constants ---------- */
 const STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","IA","ID","IL","IN","KS","KY","LA","MA","MD","ME","MI","MN","MO","MS","MT","NC","ND","NE","NH","NJ","NM","NV","NY","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VA","VT","WA","WI","WV","WY","DC","PR"];
-const OFFICE_LABELS = {P:"President", S:"Senate", G:"Governor", H:"House"};
+const OFFICE_LABELS = {
+  P: "President",
+  S: "Senate",
+  G: "Governor",
+  A: "Attorney General",
+  M: "Mayor",
+  H: "House"
+};
 const TYPE_LABELS   = {G:"General", D:"DEM Primary", R:"REP Primary"};
 
 /* ---------- DOM ---------- */
