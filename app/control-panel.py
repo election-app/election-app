@@ -14,7 +14,7 @@ CORS(app)  # allow browser fetches from any origin
 
 
 # HARD-CODED for running the panel on your laptop
-TARGET_HOST    = "98.87.214.119"   # e.g., "98.87.214.119" (or your server DNS)
+TARGET_HOST    = "127.0.0.1"   # e.g., "98.87.214.119" (or your server DNS)
 APP_HUB_PORT   = 8080
 PANEL_PORT     = 9048    # the port the panel serves on your laptop
 CHECK_INTERVAL = 1.0     # seconds between health probes
