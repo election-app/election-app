@@ -72,41 +72,15 @@
     </table>
   </section>
 
-  <!-- Manual tab -->
-  <section id="pane-manual" class="tab-pane" role="tabpanel" aria-labelledby="tab-manual">
-    <table>
-      <thead>
-      <tr>
-        <th>Service</th>
-        <th>Alive</th>
-        <th>Healthy</th>
-        <th class="hide-sm">Latency</th>
-        <th class="hide-sm">Endpoint</th>
-        <th>Last&nbsp;Change</th>
-      </tr>
-      </thead>
-      <tbody id="tbody-manual"></tbody>
-    </table>
-  </section>
+
 
   <script>
     // --- Row definitions per tab ---
     const ROWS = {
       hub: [
-        { header: "Live Data App" },
         { name: "app_hub" },        // default 9052 (via server)
       ],
-      manual: [
-        { header: "Manual Entry App" },
-        { name: "app_ui_manual" },   // 7052
-        { name: "app_hub_manual" },  // 7051
-        { header: "Manual UI Rebooters" },
-        { name: "ui_reboot_1" },     // 7046
-        { name: "ui_reboot_2" },     // 7047
-        { header: "Manual Hub Rebooters" },
-        { name: "hub_reboot_1" },    // 7049
-        { name: "hub_reboot_2" },    // 7050
-      ],
+     
     };
 
     // --- Small UI helpers ---
