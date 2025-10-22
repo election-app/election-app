@@ -271,9 +271,9 @@ RACE_TYPES = [x.strip().upper() for x in os.getenv("RACE_TYPES", "G,S").split(",
 # Pace the hub to suit your infra:
 MAX_CONCURRENCY        = int(os.getenv("MAX_CONCURRENCY", "1"))
 STATES_PER_CYCLE       = int(os.getenv("STATES_PER_CYCLE", "50"))   # any
-DELAY_BETWEEN_REQUESTS = float(os.getenv("DELAY_BETWEEN_REQUESTS","120"))
+DELAY_BETWEEN_REQUESTS = float(os.getenv("DELAY_BETWEEN_REQUESTS","20"))
 DELAY_BETWEEN_CYCLES   = float(os.getenv("DELAY_BETWEEN_CYCLES",".1"))
-TIMEOUT_SECONDS        = float(os.getenv("TIMEOUT_SECONDS","15.0"))
+TIMEOUT_SECONDS        = float(os.getenv("TIMEOUT_SECONDS","10.0"))
 
 # Snapshot in ./temp (project root)
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
