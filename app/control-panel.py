@@ -1,10 +1,20 @@
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 import threading, time, requests
-import logging, json, os
+import logging, os
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s %(message)s"
+)
 log = logging.getLogger("control-panel-all")
+log.propagate = False  # don’t double-log via root
+
+# Silence urllib3 connectionpool info unless explicitly DEBUG
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)  # allow browser fetches from any origin
@@ -88,8 +98,8 @@ def poll_targets():
             for url in info["urls"]:
                 try:
                     a, h, ms, code = _best_effort_probe(url)
-                    log.info("probe %-14s %s -> alive=%s healthy=%s http=%s in %.1fms",
-                             name, url, a, h, code, ms)
+                    log.debug("probe %-14s %s -> alive=%s healthy=%s http=%s in %.1fms",
+                            name, url, a, h, code, ms)
                     if a or (200 <= code < 300):
                         alive = a
                         healthy = h if h is not None else (True if a else False)
@@ -97,7 +107,7 @@ def poll_targets():
                         last_ok_url = url
                         break
                 except Exception as e:
-                    log.info("probe %-14s %s -> ERROR: %s", name, url, e)
+                    log.debug("probe %-14s %s -> ERROR: %s", name, url, e)
                     continue
 
             prev = info["alive"]
