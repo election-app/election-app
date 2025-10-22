@@ -1069,6 +1069,8 @@ def cache_ru():
                     "updated": blob["updated"],
                     "percent_in": c.get("percent_in"),
                     "state_percent_in": blob.get("percent_in"),
+                    "state_topline": blob.get("state_topline") or [],
+                    "state_total":   blob.get("state_total")   or 0,
                     # NEW (state-level applies to all counties in state):
                     "race_call_status": rc.get("status") or "No Decision",
                     "race_called_winner_name": win.get("name"),
