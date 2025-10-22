@@ -887,7 +887,7 @@ def _fetch_state(usps: str, office: str, race_type: str):
                     "office": office.upper(),
                     "percent_in": parsed.get("percent_in"),
                     "counties": parsed["counties"],
-                    "race_call": parsed.get("race_call")       # may be overridden
+                    "race_call": parsed.get("race_call"),       # may be overridden
                     "state_topline": parsed.get("state_topline"),
                     "state_total":   parsed.get("state_total"),
                 }
