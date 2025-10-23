@@ -239,10 +239,10 @@ def interpret_race_type(race_type: str) -> dict:
 # ---------------- Tunables (env) ----------------
 # Statewide offices (P/S/G) endpoint:
 BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "https://api.ap.org/v3/elections"))
-# BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "http://127.0.0.1:15037/v2/elections"))
+#BASE_URL_E    = os.getenv("BASE_URL_E", os.getenv("BASE_URL", "http://localhost:5037/v2/elections"))
 # House districts endpoint:
 BASE_URL_D    = os.getenv("BASE_URL_D", "https://api.ap.org/v3/elections")
-# BASE_URL_D    = os.getenv("BASE_URL_D", "http://127.0.0.1:15037/v2/districts")
+#BASE_URL_D    = os.getenv("BASE_URL_D", "http://localhost:5037/v2/districts")
 
 
 #BASE_URL_E   = os.getenv("BASE_URL_E", "https://api.ap.org/v2/elections")
