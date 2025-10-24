@@ -26,7 +26,7 @@ CORS(app)  # allow browser fetches from any origin
 # HARD-CODED for running the panel on your laptop
 TARGET_HOST    = "127.0.0.1"   # e.g., "98.87.214.119" (or your server DNS)
 APP_HUB_PORT   = 8080
-PANEL_PORT     = 9048    # the port the panel serves on your laptop
+PANEL_PORT     = 443    # the port the panel serves on your laptop
 CHECK_INTERVAL = 1.0     # seconds between health probes
 
 # -----------------------------
@@ -39,7 +39,7 @@ HUB_REBOOTER2_PORT = int(os.getenv("HUB_REBOOTER2_PORT", "9049"))
 # -----------------------------
 # Manual Entry App (new)
 # -----------------------------
-APP_UI_MANUAL_PORT  = int(os.getenv("APP_UI_MANUAL_PORT",  "7052"))
+APP_UI_MANUAL_PORT  = int(os.getenv("APP_UI_MANUAL_PORT",  "8443"))
 APP_HUB_MANUAL_PORT = int(os.getenv("APP_HUB_MANUAL_PORT", "7051"))
 UI_REBOOT_1_PORT    = int(os.getenv("UI_REBOOT_1_PORT",    "7046"))
 UI_REBOOT_2_PORT    = int(os.getenv("UI_REBOOT_2_PORT",    "7047"))
@@ -53,12 +53,12 @@ def _urls(port):
 # Targets to poll. Keys map 1:1 to what the HTML expects.
 TARGETS = {
     # Hub group
-    "app_hub":       {"urls": _urls(APP_HUB_PORT),       "alive": False, "healthy": False, "last_change": None, "url": None, "ms": None, "last_url": None},
+    "live_data_app":       {"urls": _urls(APP_HUB_PORT),       "alive": False, "healthy": False, "last_change": None, "url": None, "ms": None, "last_url": None},
     "hub_rebooter1": {"urls": _urls(HUB_REBOOTER1_PORT), "alive": False, "healthy": False, "last_change": None, "url": None, "ms": None, "last_url": None},
     "hub_rebooter2": {"urls": _urls(HUB_REBOOTER2_PORT), "alive": False, "healthy": False, "last_change": None, "url": None, "ms": None, "last_url": None},
 
     # Manual Entry App group
-    "app_ui_manual":  {"urls": _urls(APP_UI_MANUAL_PORT),  "alive": False, "healthy": False, "last_change": None, "url": None, "ms": None, "last_url": None},
+    "manual_data_app":  {"urls": _urls(APP_UI_MANUAL_PORT),  "alive": False, "healthy": False, "last_change": None, "url": None, "ms": None, "last_url": None},
     "app_hub_manual": {"urls": _urls(APP_HUB_MANUAL_PORT), "alive": False, "healthy": False, "last_change": None, "url": None, "ms": None, "last_url": None},
 
     # Manual rebooters (UI + Hub)
