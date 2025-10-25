@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")" || exit 1
 
 # Config (override via env if desired)
-PORT="${HUB_PORT:-9052}"
+PORT="${HUB_PORT:-8080}"
 APP_MODULE="${HUB_APP:-app_hub:app}"
 
 # Make sure Gunicorn won't write access/error logs to files via env defaults
