@@ -6172,6 +6172,18 @@
       document.body.classList.toggle('ag-2star', String(OFFICE) === 'aaaaaaaa');
     }
 
+    function nyBoroughDisplay(fips, raw){
+      const map = {
+        "36061": "Manhattan",
+        "36005": "Bronx",
+        "36081": "Queens",
+        "36047": "Brooklyn",
+        "36085": "Staten Island"
+      };
+      const f = String(fips).padStart(5, "0");
+      // fall back to stripping any "(…)" if an unexpected label slips in
+      return map[f] || String(raw || "").replace(/\s*\(.*?\)\s*$/, "");
+    }
 
 
 
@@ -6234,7 +6246,9 @@
       let locationText = '';
       if (NAV_LEVEL === 2 && selectedFips) {
         const st = selectedStateFP ? stateNameFromFP(selectedStateFP) : '';
-        const co = countyNameFromFips(selectedFips) || '';
+        const rawCo = countyNameFromFips(selectedFips) || '';
+        const co = (selectedStateFP === '36') ? nyBoroughDisplay(selectedFips, rawCo)
+                                              : rawCo.replace(/\s*\(.*?\)\s*$/, '');
         locationText = st && co
           ? `${st}<span class="loc-sep" aria-hidden="true">|</span><span class="loc-county">${co}</span>`
           : (st ? st : (co ? `<span class="loc-county">${co}</span>` : ''));
