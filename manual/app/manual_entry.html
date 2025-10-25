@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Manual Entries (2025)</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#0a0a0a; --muted:#778; --ok:#1a7f37; --warn:#b85; --bg:#fff; --card:#f4f6f9; }
+  *{box-sizing:border-box}
+  body{margin:0;padding:20px;background:#fff;color:#000;font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  h1{font:700 20px/1 Oswald,system-ui;margin:0 0 10px}
+  h2{font:700 16px/1 Oswald,system-ui;margin:18px 0 8px}
+  fieldset{border:1px solid #dde3ee;border-radius:8px;background:#f9fbff;padding:12px;margin:12px 0}
+  legend{padding:0 6px;font-weight:700;color:#334}
+  .row{display:grid;grid-template-columns:1.4fr .9fr .9fr;gap:8px;align-items:center;margin:6px 0}
+  .row label{color:#334}
+  input[type="number"],input[type="text"]{width:100%;padding:8px 10px;border:1px solid #ccd6e0;border-radius:6px}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  .toolbar{display:flex;gap:10px;align-items:center;margin:10px 0 16px}
+  button{padding:10px 14px;border-radius:8px;border:1px solid #cbd5e1;background:#111;color:#fff;font-weight:700;cursor:pointer}
+  button.secondary{background:#f3f4f6;color:#111;border-color:#cbd5e1}
+  .muted{color:#667085}
+  .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#334;font-weight:700;margin-left:8px}
+  .ok{color:var(--ok)} .warn{color:var(--warn)}
+  .hint{font-size:12px;color:#556}
+  .sep{height:1px;background:#e5e7eb;margin:16px 0}
+  .wide{grid-column:1/-1}
+  a{color:#0a6fda;text-decoration:none} a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+
+<h1>Manual Entries <span class="pill">2025</span></h1>
+<div class="toolbar">
+  <button id="saveBtn">Save</button>
+  <button class="secondary" id="reloadBtn">Reload</button>
+  <span id="status" class="muted"></span>
+</div>
+
+<div class="grid-2">
+  <fieldset>
+    <legend>Governor — New Jersey (NJ)</legend>
+    <div class="row"><label>Mikie Sherrill (DEM) votes</label><input id="g_nj_sherrill_votes" type="number" min="0" step="1" placeholder="0"><input id="g_nj_sherrill_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Jack Ciattarelli (REP) votes</label><input id="g_nj_ciattarelli_votes" type="number" min="0" step="1" placeholder="0"><input id="g_nj_ciattarelli_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row wide"><label>Percent In</label><input id="g_nj_pi" type="number" min="0" max="100" step="0.1" placeholder="%"><div class="hint">statewide % counted</div></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Governor — Virginia (VA)</legend>
+    <div class="row"><label>Winsome Earle-Sears (REP) votes</label><input id="g_va_sears_votes" type="number" min="0" step="1" placeholder="0"><input id="g_va_sears_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Abigail Spanberger (DEM) votes</label><input id="g_va_spanberger_votes" type="number" min="0" step="1" placeholder="0"><input id="g_va_spanberger_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row wide"><label>Percent In</label><input id="g_va_pi" type="number" min="0" max="100" step="0.1" placeholder="%"><div class="hint">statewide % counted</div></div>
+  </fieldset>
+</div>
+
+<fieldset>
+  <legend>Attorney General — Virginia (VA)</legend>
+  <div class="row"><label>Jason Miyares (REP) votes</label><input id="a_va_miyares_votes" type="number" min="0" step="1" placeholder="0"><input id="a_va_miyares_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+  <div class="row"><label>Jay Jones (DEM) votes</label><input id="a_va_jones_votes" type="number" min="0" step="1" placeholder="0"><input id="a_va_jones_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+  <div class="row wide"><label>Percent In</label><input id="a_va_pi" type="number" min="0" max="100" step="0.1" placeholder="%"><div class="hint">statewide % counted</div></div>
+</fieldset>
+
+<h2>NYC Mayor — Boroughs</h2>
+
+
+<!-- NYC City-Wide Total (state view for M) -->
+<fieldset>
+  <legend>NYC City-Wide Total (New York State view)</legend>
+  <div class="row"><label>Curtis Sliwa (REP) votes</label><input id="m_ny_total_sliwa" type="number" min="0" step="1"><input id="m_ny_total_sliwa_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+  <div class="row"><label>Andrew Cuomo (IND) votes</label><input id="m_ny_total_cuomo" type="number" min="0" step="1"><input id="m_ny_total_cuomo_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+  <div class="row"><label>Zohran Mamdani (DEM) votes</label><input id="m_ny_total_mamdani" type="number" min="0" step="1"><input id="m_ny_total_mamdani_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+  <div class="row wide"><label>Percent In</label><input id="m_ny_total_pi" type="number" min="0" max="100" step="0.1" placeholder="%"><div class="hint">shown when zoomed out to NY state</div></div>
+</fieldset>
+
+<div class="grid-3">
+  <fieldset>
+    <legend>Brooklyn (Kings — 36047)</legend>
+    <div class="row"><label>Curtis Sliwa (REP)</label><input id="m_36047_sliwa" type="number" min="0" step="1"><input id="m_36047_sliwa_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Andrew Cuomo (IND)</label><input id="m_36047_cuomo" type="number" min="0" step="1"><input id="m_36047_cuomo_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Zohran Mamdani (DEM)</label><input id="m_36047_mamdani" type="number" min="0" step="1"><input id="m_36047_mamdani_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row wide"><label>% In</label><input id="m_36047_pi" type="number" min="0" max="100" step="0.1"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Queens (36081)</legend>
+    <div class="row"><label>Curtis Sliwa (REP)</label><input id="m_36081_sliwa" type="number" min="0" step="1"><input id="m_36081_sliwa_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Andrew Cuomo (IND)</label><input id="m_36081_cuomo" type="number" min="0" step="1"><input id="m_36081_cuomo_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Zohran Mamdani (DEM)</label><input id="m_36081_mamdani" type="number" min="0" step="1"><input id="m_36081_mamdani_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row wide"><label>% In</label><input id="m_36081_pi" type="number" min="0" max="100" step="0.1"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Manhattan (New York — 36061)</legend>
+    <div class="row"><label>Curtis Sliwa (REP)</label><input id="m_36061_sliwa" type="number" min="0" step="1"><input id="m_36061_sliwa_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Andrew Cuomo (IND)</label><input id="m_36061_cuomo" type="number" min="0" step="1"><input id="m_36061_cuomo_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Zohran Mamdani (DEM)</label><input id="m_36061_mamdani" type="number" min="0" step="1"><input id="m_36061_mamdani_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row wide"><label>% In</label><input id="m_36061_pi" type="number" min="0" max="100" step="0.1"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Bronx (36005)</legend>
+    <div class="row"><label>Curtis Sliwa (REP)</label><input id="m_36005_sliwa" type="number" min="0" step="1"><input id="m_36005_sliwa_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Andrew Cuomo (IND)</label><input id="m_36005_cuomo" type="number" min="0" step="1"><input id="m_36005_cuomo_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Zohran Mamdani (DEM)</label><input id="m_36005_mamdani" type="number" min="0" step="1"><input id="m_36005_mamdani_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row wide"><label>% In</label><input id="m_36005_pi" type="number" min="0" max="100" step="0.1"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Staten Island (Richmond — 36085)</legend>
+    <div class="row"><label>Curtis Sliwa (REP)</label><input id="m_36085_sliwa" type="number" min="0" step="1"><input id="m_36085_sliwa_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Andrew Cuomo (IND)</label><input id="m_36085_cuomo" type="number" min="0" step="1"><input id="m_36085_cuomo_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row"><label>Zohran Mamdani (DEM)</label><input id="m_36085_mamdani" type="number" min="0" step="1"><input id="m_36085_mamdani_pct" type="number" min="0" max="100" step="0.01" placeholder="%"></div>
+    <div class="row wide"><label>% In</label><input id="m_36085_pi" type="number" min="0" max="100" step="0.1"></div>
+  </fieldset>
+</div>
+
+<div class="sep"></div>
+<div class="hint">Save writes <code>temp/manual_entries.json</code>. The map reads it via <code>/manual/ru</code> whenever manual mode is on for 2025 G/A/M.</div>
+
+<script>
+const S = sel => document.querySelector(sel);
+
+// Build payload the UI route expects (now includes NYC city-wide "state_total")
+function buildPayload(){
+  const asInt = id => Math.max(0, parseInt(S('#'+id)?.value || '0', 10) || 0);
+  const asNum = id => {
+    const v = parseFloat(S('#'+id)?.value || '');
+    return Number.isFinite(v) ? v : undefined;
+  };
+
+  // Governor NJ
+  const G_NJ = {
+    state_percent_in: asNum('g_nj_pi'),
+    candidates: [
+      { name:'Mikie Sherrill',   party:'DEM', votes:asInt('g_nj_sherrill_votes'),    pct:asNum('g_nj_sherrill_pct') },
+      { name:'Jack Ciattarelli', party:'REP', votes:asInt('g_nj_ciattarelli_votes'), pct:asNum('g_nj_ciattarelli_pct') }
+    ]
+  };
+  // Governor VA
+  const G_VA = {
+    state_percent_in: asNum('g_va_pi'),
+    candidates: [
+      { name:'Winsome Earle-Sears', party:'REP', votes:asInt('g_va_sears_votes'),      pct:asNum('g_va_sears_pct') },
+      { name:'Abigail Spanberger',  party:'DEM', votes:asInt('g_va_spanberger_votes'), pct:asNum('g_va_spanberger_pct') }
+    ]
+  };
+  // AG VA
+  const A_VA = {
+    state_percent_in: asNum('a_va_pi'),
+    candidates: [
+      { name:'Jason Miyares', party:'REP', votes:asInt('a_va_miyares_votes'), pct:asNum('a_va_miyares_pct') },
+      { name:'Jay Jones',     party:'DEM', votes:asInt('a_va_jones_votes'),   pct:asNum('a_va_jones_pct') }
+    ]
+  };
+
+  // Borough helper
+  function b(fips, name){
+    return {
+      name,
+      percent_in: asNum(`m_${fips}_pi`),
+      candidates: [
+        { name:'Curtis Sliwa',  party:'REP', votes:asInt(`m_${fips}_sliwa`),   pct:asNum(`m_${fips}_sliwa_pct`) },
+        { name:'Andrew Cuomo',  party:'IND', votes:asInt(`m_${fips}_cuomo`),   pct:asNum(`m_${fips}_cuomo_pct`) },
+        { name:'Zohran Mamdani',party:'DEM', votes:asInt(`m_${fips}_mamdani`), pct:asNum(`m_${fips}_mamdani_pct`) }
+      ]
+    };
+  }
+
+  // NYC state-wide (city-wide) total for M state view
+  const M_NY_STATE_TOTAL = {
+    state_percent_in: asNum('m_ny_total_pi'),
+    candidates: [
+      { name:'Curtis Sliwa',  party:'REP', votes:asInt('m_ny_total_sliwa'),   pct:asNum('m_ny_total_sliwa_pct') },
+      { name:'Andrew Cuomo',  party:'IND', votes:asInt('m_ny_total_cuomo'),   pct:asNum('m_ny_total_cuomo_pct') },
+      { name:'Zohran Mamdani',party:'DEM', votes:asInt('m_ny_total_mamdani'), pct:asNum('m_ny_total_mamdani_pct') }
+    ]
+  };
+
+  const M_NY = {
+    state_total: M_NY_STATE_TOTAL,   // <-- new
+    counties: {
+      "36047": b("36047","Kings (Brooklyn)"),
+      "36081": b("36081","Queens"),
+      "36061": b("36061","New York (Manhattan)"),
+      "36005": b("36005","Bronx"),
+      "36085": b("36085","Richmond (Staten Island)")
+    }
+  };
+
+  // final structure
+  return {
+    "G:G": { "NJ": G_NJ, "VA": G_VA },
+    "A:G": { "VA": A_VA },
+    "M:G": { "NY": M_NY }
+  };
+}
+
+async function loadExisting(){
+  try{
+    const r = await fetch('/manual/entries', {cache:'no-store'});
+    if(!r.ok) return;
+    const data = await r.json();
+    const put = (id, v) => { if (S('#'+id) && v != null && v !== '') S('#'+id).value = v; };
+
+    // G: NJ / VA
+    const G = (data["G:G"]||{});
+    const NJ = G["NJ"]||{}, VA = G["VA"]||{};
+    put('g_nj_pi', NJ.state_percent_in);
+    (NJ.candidates||[]).forEach(c=>{
+      if (c.name==='Mikie Sherrill'){ put('g_nj_sherrill_votes', c.votes); put('g_nj_sherrill_pct', c.pct); }
+      if (c.name==='Jack Ciattarelli'){ put('g_nj_ciattarelli_votes', c.votes); put('g_nj_ciattarelli_pct', c.pct); }
+    });
+    put('g_va_pi', VA.state_percent_in);
+    (VA.candidates||[]).forEach(c=>{
+      if (c.name==='Winsome Earle-Sears'){ put('g_va_sears_votes', c.votes); put('g_va_sears_pct', c.pct); }
+      if (c.name==='Abigail Spanberger'){ put('g_va_spanberger_votes', c.votes); put('g_va_spanberger_pct', c.pct); }
+    });
+
+    // A: VA
+    const A = (data["A:G"]||{})["VA"] || {};
+    put('a_va_pi', A.state_percent_in);
+    (A.candidates||[]).forEach(c=>{
+      if (c.name==='Jason Miyares'){ put('a_va_miyares_votes', c.votes); put('a_va_miyares_pct', c.pct); }
+      if (c.name==='Jay Jones'){ put('a_va_jones_votes', c.votes); put('a_va_jones_pct', c.pct); }
+    });
+
+    // M: NYC city-wide + boroughs
+    const M = (data["M:G"]||{})["NY"] || {};
+    const ST = M.state_total || {};
+    put('m_ny_total_pi', ST.state_percent_in);
+    (ST.candidates||[]).forEach(c=>{
+      if (c.name==='Curtis Sliwa'){ put('m_ny_total_sliwa', c.votes); put('m_ny_total_sliwa_pct', c.pct); }
+      if (c.name==='Andrew Cuomo'){ put('m_ny_total_cuomo', c.votes); put('m_ny_total_cuomo_pct', c.pct); }
+      if (c.name==='Zohran Mamdani'){ put('m_ny_total_mamdani', c.votes); put('m_ny_total_mamdani_pct', c.pct); }
+    });
+
+    const C = (M.counties||{});
+    ["36047","36081","36061","36005","36085"].forEach(f=>{
+      const rec = C[f] || {};
+      put(`m_${f}_pi`, rec.percent_in);
+      (rec.candidates||[]).forEach(c=>{
+        if (c.name==='Curtis Sliwa'){ put(`m_${f}_sliwa`, c.votes); put(`m_${f}_sliwa_pct`, c.pct); }
+        if (c.name==='Andrew Cuomo'){ put(`m_${f}_cuomo`, c.votes); put(`m_${f}_cuomo_pct`, c.pct); }
+        if (c.name==='Zohran Mamdani'){ put(`m_${f}_mamdani`, c.votes); put(`m_${f}_mamdani_pct`, c.pct); }
+      });
+    });
+  }catch{}
+}
+
+async function save(){
+  const status = S('#status');
+  status.textContent = 'Saving…';
+  try{
+    const body = buildPayload();
+    const r = await fetch('/manual/save', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const j = await r.json().catch(()=> ({}));
+    if(r.ok && j.ok){
+      status.innerHTML = '<span class="ok">Saved.</span>';
+    }else{
+      status.innerHTML = '<span class="warn">Save failed.</span>';
+      console.warn(j);
+    }
+  }catch(e){
+    status.innerHTML = '<span class="warn">Save error.</span>';
+  }
+}
+
+S('#saveBtn').addEventListener('click', save);
+S('#reloadBtn').addEventListener('click', loadExisting);
+loadExisting();
+</script>
+</body>
+</html>
