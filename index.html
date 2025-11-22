@@ -1,0 +1,880 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MI %In • Gauge + JSON-driven Plot</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;color:#111;background:#fff}
+  header{padding:14px 18px;border-bottom:1px solid #e5e7eb}
+  h1{margin:0;font-size:18px;font-weight:700;letter-spacing:.2px}
+
+  .wrap{width:100%;max-width:1600px;margin:0 auto;padding:14px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .pill{padding:6px 10px;border-radius:999px;background:#f5f7fb;border:1px solid #e5e7eb;color:#334155;font-size:12px}
+  .index{font-variant-numeric:tabular-nums}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:1100px){ .grid2{grid-template-columns:1fr} }
+
+  .panel{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:16px;box-shadow:0 6px 18px rgba(0,0,0,.06)}
+
+  /* Gauge */
+  .gaugeWrap{display:grid;place-items:center}
+  .legendRow{display:flex;gap:18px;justify-content:center;margin-top:8px;color:#333;font-size:13px;flex-wrap:wrap}
+  .legendRow .dot{width:10px;height:10px;border-radius:50%}
+
+  svg.gauge{max-width:980px;width:100%;height:auto}
+  .needle{transform-origin: 300px 260px; transition: transform 800ms cubic-bezier(.2,.8,.2,1);}
+  .tickLine{stroke:#000;stroke-width:2}
+  .tickLbl{font-size:16px;fill:#000;font-weight:600}
+
+  .grid{display:grid;grid-template-columns:300px 1fr;gap:10px 14px;align-items:center;margin-top:8px}
+  .label{color:#6b7280;text-transform:uppercase;letter-spacing:.08em;font-size:11px}
+  .value{font-variant-numeric:tabular-nums;font-size:15px}
+  .party{display:inline-flex;align-items:center;gap:8px}
+  .swatch{width:14px;height:14px;border-radius:4px;border:1px solid #0003}
+
+  .nav{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+  button{appearance:none;border:1px solid #cbd5e1;background:#0f172a;color:#fff;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer}
+  button.secondary{background:#fff;color:#111;border-color:#cbd5e1}
+  button:disabled{opacity:.5;cursor:not-allowed}
+
+  /* Right plot */
+  .plotBox{position:relative; width:100%; aspect-ratio: 16/9; border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.06)}
+  svg.plot{width:100%;height:100%;display:block;background:#fff}
+  .axis path,.axis line{stroke:#111;stroke-width:1}
+  .gridline{stroke:#94a3b8;stroke-dasharray:4 4;stroke-width:.8}
+  .lineMargin{fill:none;stroke:#0b6a8a;stroke-width:2}
+
+  .pt{stroke:none}
+  .pt.leader{fill:#6b7280}     /* gray circles */
+  .pt.trailer{fill:#9ca3af}    /* lighter gray squares */
+  .pt.dem{fill:#93c5fd}        /* light blue */
+  .pt.rep{fill:#fca5a5}        /* light red */
+
+
+  .key{
+    position:absolute;
+    left:70px;   /* moved right */
+    top:12px;
+    background:#fff;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:8px 10px;
+    font-size:12px;
+    box-shadow:0 4px 10px rgba(0,0,0,.05)
+  }
+
+  .key .k{display:flex;align-items:center;gap:6px}
+  .key .sq{width:10px;height:10px;background:#9ca3af}
+  .key .ci{width:10px;height:10px;background:#6b7280;border-radius:50%}
+  .key .trb{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid #93c5fd}
+  .key .trr{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid #fca5a5}
+  /* ADJUSTED (non-raw) series — solid colors */
+  .pt.demStrong{fill:#1d4ed8}   /* solid blue */
+  .pt.repStrong{fill:#ef4444}   /* solid red  */
+  .cursorX{stroke:#111;stroke-width:4;opacity:1;pointer-events:none;transition:transform 800ms cubic-bezier(.2,.8,.2,1)}
+  /* Legend: solid party circles */
+  .key .cr, .key .cb { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .key .cr { background:#ef4444; } /* solid red */
+  .key .cb { background:#1d4ed8; } /* solid blue */
+  .bigRow{display:flex;justify-content:space-between;align-items:flex-end;margin:2px 4px 10px}
+  .bigX,.bigMargin{font-weight:800;letter-spacing:.2px;font-variant-numeric:tabular-nums}
+  .bigX{font-size:40px;color:#111}
+  .bigMargin{font-size:40px}          /* color set dynamically in JS */
+  @media (max-width:1100px){
+    .bigX,.bigMargin{font-size:34px}
+  }
+    .bigRow{
+      position:relative;
+      width:100%;
+      height:64px;              /* reserve vertical space above gauge */
+      margin:0 0 6px;
+    }
+    .bigBox{
+      position:absolute;
+      top:0;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .bigBox.left{ left:-8px; text-align:left; }
+    .bigBox.right{ right:-8px; text-align:right; }
+
+    .bigLbl{
+      font-size:30px;
+      letter-spacing:.12em;
+      color:#6b7280;
+      font-weight:700;
+    }
+    .bigX,.bigMargin{
+      font-weight:800;
+      letter-spacing:.2px;
+      font-variant-numeric:tabular-nums;
+    }
+    .bigX{ font-size: Fortypx; color:#111; }      /* you already had this color */
+    .bigMargin{ font-size: Fortypx; }             /* color set in JS */
+
+    @media (max-width:1100px){
+      .bigRow{ height:56px; }
+      .bigX,.bigMargin{ font-size:34px; }
+    }
+    .ytick{stroke:#111;stroke-width:1}
+    .ytickLbl{font-size:12px;fill:#111}
+    /* Make the gauge (band + ticks + needle) bigger */
+    #gFace{
+      transform: scale(1.18);            /* tweak 1.10–1.30 to taste */
+      transform-origin: 300px 260px;      /* center at CX,CY */
+      transform-box: fill-box;
+    }
+
+    /* Optional: don’t over-scale on narrow screens */
+    @media (max-width: 1100px){
+      #gFace{ transform: scale(1.05); }
+    }
+    /* Hide the pills row (Source, Point, file, gauge note) */
+    .toolbar{ display:none !important; }
+
+    .stateStamp{
+      text-align:center;
+      margin-top:116px;
+      font-weight:800;
+      font-size:56px;         /* tweak to taste */
+      letter-spacing:.04em;
+      color:#334155;
+    }
+
+    .stateStamp{
+      text-align:center;
+      margin-top:16px;
+      color:#334155;
+    }
+    .stampPrefix{
+      display:block;
+      font-weight:700;
+      font-size:32px;     /* smaller */
+      letter-spacing:.02em;
+      opacity:.9;
+      margin-bottom:2px;
+    }
+    .stampState{
+      display:block;
+      font-weight:900;
+      font-size:64px;     /* bigger */
+      letter-spacing:.04em;
+    }
+    @media (max-width: 900px){
+      .stampPrefix{ font-size:16px; }
+      .stampState{  font-size:40px; }
+    }
+    .stateStamp{
+      text-align:center;
+      margin-top:116px;
+      font-weight:800;
+      font-size:56px;         /* tweak to taste */
+      letter-spacing:.04em;
+      color:#334155;
+    }
+
+</style>
+</head>
+<body>
+    <header>
+      <h1 id="titleH1">Michigan</h1>
+      <div style="margin-top:8px">
+        <label for="stateSel" style="font-size:13px;color:#555;margin-right:6px">State:</label>
+        <select id="stateSel">
+          <option value="mi">MI</option>
+          <option value="ia">IA</option>
+          <option value="az">AZ</option>
+          <option value="ga">GA</option>
+          <option value="pa">PA</option>
+          <option value="nv">NV</option>
+          <option value="sc">SC</option>
+          <option value="wi">WI</option>
+        </select>
+      </div>
+    </header>
+
+
+<div class="wrap">
+  <div class="toolbar">
+    <div class="pill">Source JSON: <code>/data</code></div>
+    <div class="pill index">Point <span id="idx">0</span> / <span id="total">0</span></div>
+    <div class="pill" id="metaPill"></div>
+    <div class="pill">Gauge = GOP win&nbsp;% (left = Dem, right = GOP)</div>
+  </div>
+
+  <div class="grid2">
+    <!-- LEFT: Gauge + readout + controls -->
+    <div class="panel">
+      <div class="gaugeWrap">
+          <!-- BIG READOUTS -->
+          <div class="bigRow">
+            <div class="bigBox left">
+              <div class="bigLbl">STATEWIDE % IN</div>
+              <div id="bigX" class="bigX">—</div>
+            </div>
+            <div class="bigBox right">
+              <div class="bigLbl">MARGIN</div>
+              <div id="bigMargin" class="bigMargin">—</div>
+            </div>
+          </div>
+
+
+        <svg id="gauge" class="gauge" viewBox="0 0 600 340" aria-label="Win probability gauge">
+          <defs>
+            <!-- One seamless band gradient (blue → yellow → red) -->
+            <linearGradient id="gradFull" gradientUnits="userSpaceOnUse" x1="100" y1="260" x2="500" y2="260">
+              <stop offset="0%"   stop-color="#0c2444"/>
+              <stop offset="5%"   stop-color="#1f56c9"/>
+              <stop offset="10%"  stop-color="#2b6cff"/>
+              <stop offset="23%"  stop-color="#ffd95a"/>
+              <stop offset="77%"  stop-color="#ffd95a"/>
+              <stop offset="90%"  stop-color="#ff4a4a"/>
+              <stop offset="100%" stop-color="#6f2a22"/>
+            </linearGradient>
+            <linearGradient id="needleGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stop-color="#000000"/>
+              <stop offset="70%"  stop-color="#0b0b0b"/>
+              <stop offset="100%" stop-color="#1c1c1c"/>
+            </linearGradient>
+            <filter id="needleShadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow dx="0" dy="1.2" stdDeviation="1.4" flood-color="#000000" flood-opacity="0.25"/>
+            </filter>
+          </defs>
+
+          <!-- Band -->
+          <g id="gFace">
+              <!-- Band -->
+              <path id="bandFull" fill="none" stroke="url(#gradFull)" stroke-width="22" stroke-linecap="round"/>
+              
+              <!-- Ticks -->
+              <g id="ticks"></g>
+              
+              <!-- Needle -->
+              <g id="needle" class="needle" filter="url(#needleShadow)">
+                  <path d="M292,260 L308,260 L302.5,238 L300.6,102 L299.4,102 L297.5,238 Z"
+                  fill="url(#needleGrad)" stroke="#000" stroke-width="0.5" />
+                  <path d="M300.8,260 L301.8,238 L300.9,104"
+                  fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1" />
+                  <circle cx="300" cy="260" r="10" fill="#000"/>
+                  <circle cx="300" cy="260" r="7"  fill="#111" stroke="#5b5b5b" stroke-width="0.8"/>
+                  <circle cx="300" cy="260" r="2.2" fill="#ffffff"/>
+              </g>
+          </g>
+        </svg>
+      </div>
+
+
+
+      <div class="grid">
+        <div class="label">Statewide % in (x)</div><div class="value" id="xIn">—</div>
+        <div class="label">Leader win confidence (adjusted y)</div><div class="value" id="yLeader">—</div>
+        <div class="label">Leader win confidence (raw y)</div><div class="value" id="yLeaderRaw">—</div>
+        <div class="label">Leader party / color / marker</div><div class="value" id="leaderParty">—</div>
+        <div class="label">Trailer win confidence (adjusted y)</div><div class="value" id="yTrailer">—</div>
+        <div class="label">Trailer win confidence (raw y)</div><div class="value" id="yTrailerRaw">—</div>
+        <div class="label">Trailer party / color / marker</div><div class="value" id="trailerParty">—</div>
+        <div class="label">Statewide margin (H − T) pp</div><div class="value" id="yMargin">—</div>
+      </div>
+
+      <div class="nav">
+        <button id="prevBtn" class="secondary">← Back</button>
+        <button id="nextBtn" class="secondary">Next →</button>
+        <button id="animateBtn">▶ Animate</button>
+        <button id="loopBtn" class="secondary" aria-pressed="false" title="Toggle looping">
+          Loop: Off
+        </button>
+      </div>
+    </div>
+
+    <!-- RIGHT: JSON-driven plot -->
+    <div class="panel">
+      <div class="plotBox">
+        <div class="key">
+          <div class="k"><span class="ci"></span> Leader (circle)</div>
+          <div class="k"><span class="sq"></span> Trailer (square)</div>
+          <div class="k"><span class="cr"></span> Trump (red)</div>
+          <div class="k"><span class="cb"></span> Harris (blue)</div>
+        </div>
+        <svg id="plot" class="plot" viewBox="0 0 1200 675" aria-label="MI plot"></svg>
+       </div>
+      <div id="stateStamp" class="stateStamp">
+        <span class="stampPrefix">2024 Presidential Race in</span>
+        <span id="stampState" class="stampState">Michigan</span>
+      </div>
+
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+    const YEAR_STAMP = '2024';  // text year for the stamp
+
+    const loopBtn = document.getElementById('loopBtn');   // NEW
+    let isLoop = false;                                    // NEW
+
+    const bigXEl = document.getElementById('bigX');
+    const bigMarginEl = document.getElementById('bigMargin');
+
+(function(){
+  // ---------- Gauge helpers ----------
+  const CX = 300, CY = 260, R = 200;
+  const gauge = document.getElementById('gauge');
+  const ticksG = document.getElementById('ticks');
+  const needle = document.getElementById('needle');
+
+  function arcPath(startDeg, endDeg){
+    const sd = startDeg * Math.PI/180, ed = endDeg * Math.PI/180;
+    const sx = CX + R * Math.sin(sd), sy = CY - R * Math.cos(sd);
+    const ex = CX + R * Math.sin(ed), ey = CY - R * Math.cos(ed);
+    const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0;
+    return `M ${sx.toFixed(1)} ${sy.toFixed(1)} A ${R} ${R} 0 ${large} 1 ${ex.toFixed(1)} ${ey.toFixed(1)}`;
+  }
+  function posFromPct(pct, rIn, rOut){
+    const ang = ((pct - 50) / 50) * 90;
+    const rad = ang * Math.PI/180;
+    const sin = Math.sin(rad), cos = Math.cos(rad);
+    const x1 = CX + rIn  * sin, y1 = CY - rIn  * cos;
+    const x2 = CX + rOut * sin, y2 = CY - rOut * cos;
+    return {x1,y1,x2,y2};
+  }
+  function drawGauge(){
+    document.getElementById('bandFull').setAttribute('d', arcPath(-90, 90));
+    ticksG.innerHTML = '';
+    const specials = new Set([5, 20, 35, 50, 65, 80, 95]);
+    for (let pct=0;pct<=100;pct+=1){
+      const isSpecial = specials.has(pct);
+      const quint = (!isSpecial && pct%5===0);
+      const len = isSpecial?28:quint?12:6;
+      const sw  = isSpecial?2.8:quint?1.5:1.0;
+      const {x1,y1,x2,y2} = posFromPct(pct, R-len-6, R-6);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg','line');
+      ln.setAttribute('x1',x1); ln.setAttribute('y1',y1);
+      ln.setAttribute('x2',x2); ln.setAttribute('y2',y2);
+      ln.setAttribute('class','tickLine'); ln.setAttribute('stroke-width',sw);
+      ticksG.appendChild(ln);
+
+      if (isSpecial){
+        const display = (pct<=50)?(100-pct):pct;
+        const bump = (pct===0||pct===100)?40:30;
+        const {x2:xl,y2:yl} = posFromPct(pct,R-len-bump,R-len-bump);
+        const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+        t.setAttribute('x',xl); t.setAttribute('y',yl);
+        t.setAttribute('text-anchor','middle'); t.setAttribute('class','tickLbl');
+        t.textContent = String(display);
+        ticksG.appendChild(t);
+      }
+    }
+    // DEM/GOP caps
+    const dem = document.createElementNS('http://www.w3.org/2000/svg','text');
+    dem.setAttribute('class','tickLbl'); dem.textContent='DEM';
+    const gop = document.createElementNS('http://www.w3.org/2000/svg','text');
+    gop.setAttribute('class','tickLbl'); gop.textContent='GOP';
+    const demPos = posFromPct(0, R+22, R+22);
+    const gopPos = posFromPct(100, R+22, R+22);
+    dem.setAttribute('x', demPos.x2 - 26); dem.setAttribute('y', demPos.y2 + 28);
+    gop.setAttribute('x', gopPos.x2 + 26); gop.setAttribute('y', gopPos.y2 + 28);
+    dem.setAttribute('text-anchor','start'); gop.setAttribute('text-anchor','end');
+    ticksG.appendChild(dem); ticksG.appendChild(gop);
+  }
+  function setNeedle(repPct){
+    let p = Number(repPct);
+    if (!Number.isFinite(p)) p = 50;
+    p = Math.max(0, Math.min(100, p));
+    const angle = ((p - 50) / 50) * 90;
+    needle.style.transform = `rotate(${angle}deg)`;
+  }
+  drawGauge();
+
+  // ---------- Right plot (pure SVG, JSON-driven) ----------
+  const plot = document.getElementById('plot');
+  const W=1200, H=675; // viewBox size
+  const m = {l:80, r:90, t:60, b:70};
+  const innerW = W - m.l - m.r;
+  const innerH = H - m.t - m.b;
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('transform', `translate(${m.l},${m.t})`);
+  plot.appendChild(g);
+  // vertical cursor line (follows current statewide % in)
+  const cursorLine = document.createElementNS(plot.namespaceURI,'line');
+  cursorLine.setAttribute('class','cursorX');
+  g.appendChild(cursorLine);
+
+  // draw a vertical line at x=0, full height; we’ll slide it with a transform
+  cursorLine.setAttribute('x1', 0);
+  cursorLine.setAttribute('x2', 0);
+  cursorLine.setAttribute('y1', 0);
+  cursorLine.setAttribute('y2', innerH);
+
+  function drawCursorAt(pct){
+    const X = tx(Number(pct) || 0);
+    cursorLine.setAttribute('transform', `translate(${X},0)`);
+  }
+
+
+  function add(el){ g.appendChild(el); return el; }
+  function tx(x){ return (x/100)*innerW; }
+  function tyLeft(y){ return innerH - (y/100)*innerH; }            // 0..100
+  let RIGHT_MIN = -10, RIGHT_MAX = 55;  // default fallback
+
+  function tyRight(pp){
+    const min = RIGHT_MIN, max = RIGHT_MAX;
+    return innerH - ((pp - min) / (max - min)) * innerH;
+  }
+
+  function setRightScaleByData(payload){
+    const ys = (payload?.series?.statewide_margin_pp?.y || [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n));
+
+    if (!ys.length){
+      RIGHT_MIN = -10; RIGHT_MAX = 55; // fallback if no margin series
+      return;
+    }
+
+    let lo = Math.min(...ys);
+    let hi = Math.max(...ys);
+
+    if (lo === hi){ lo -= 1; hi += 1; }            // avoid zero-span
+    const span0 = hi - lo;
+    const pad = Math.max(2, span0 * 0.10);         // 10% padding, min 2pp
+    lo -= pad; hi += pad;
+
+    // Snap to “nice” 5-pt ticks
+    RIGHT_MIN = Math.floor(lo / 5) * 5;
+    RIGHT_MAX = Math.ceil(hi / 5) * 5;
+
+    // Guarantee a minimum visible span (20pp)
+    if (RIGHT_MAX - RIGHT_MIN < 20){
+      const mid = (RIGHT_MIN + RIGHT_MAX) / 2;
+      RIGHT_MIN = Math.floor((mid - 10) / 5) * 5;
+      RIGHT_MAX = Math.ceil((mid + 10) / 5) * 5;
+    }
+  }
+
+
+  function axis(){
+    // outer frame
+    const xAxis = document.createElementNS(plot.namespaceURI,'line');
+    xAxis.setAttribute('x1',0); xAxis.setAttribute('y1',innerH);
+    xAxis.setAttribute('x2',innerW); xAxis.setAttribute('y2',innerH);
+    xAxis.setAttribute('stroke','#111'); xAxis.setAttribute('stroke-width','1');
+    add(xAxis);
+
+    const yAxis = document.createElementNS(plot.namespaceURI,'line');
+    yAxis.setAttribute('x1',0); yAxis.setAttribute('y1',0);
+    yAxis.setAttribute('x2',0); yAxis.setAttribute('y2',innerH);
+    yAxis.setAttribute('stroke','#111'); yAxis.setAttribute('stroke-width','1');
+    add(yAxis);
+    // RIGHT y-axis
+    const yAxisR = document.createElementNS(plot.namespaceURI,'line');
+    yAxisR.setAttribute('x1', innerW);
+    yAxisR.setAttribute('y1', 0);
+    yAxisR.setAttribute('x2', innerW);
+    yAxisR.setAttribute('y2', innerH);
+    yAxisR.setAttribute('stroke', '#111');
+    yAxisR.setAttribute('stroke-width', '1');
+    add(yAxisR);
+
+    // gridlines Y (left 0..100)
+    for (let y=0; y<=100; y+=10){
+      const ln = document.createElementNS(plot.namespaceURI,'line');
+      ln.setAttribute('x1',0); ln.setAttribute('y1',tyLeft(y));
+      ln.setAttribute('x2',innerW); ln.setAttribute('y2',tyLeft(y));
+      ln.setAttribute('class','gridline'); add(ln);
+    }
+    // left y-axis ticks and labels (0..100 by 10)
+    for (let y=0; y<=100; y+=10){
+      const Y = tyLeft(y);
+
+      // tick mark
+      const tk = document.createElementNS(plot.namespaceURI,'line');
+      tk.setAttribute('x1', -6); tk.setAttribute('y1', Y);
+      tk.setAttribute('x2',  0); tk.setAttribute('y2', Y);
+      tk.setAttribute('class','ytick');
+      g.appendChild(tk);
+
+      // numeric label
+      const tl = document.createElementNS(plot.namespaceURI,'text');
+      tl.setAttribute('x', -10); tl.setAttribute('y', Y+4);
+      tl.setAttribute('text-anchor','end');
+      tl.setAttribute('class','ytickLbl');
+      tl.textContent = String(y);
+      g.appendChild(tl);
+    }
+
+    // dashed reference at 50 and 15
+    const ref50 = document.createElementNS(plot.namespaceURI,'line');
+    ref50.setAttribute('x1',0); ref50.setAttribute('y1',tyLeft(50));
+    ref50.setAttribute('x2',innerW); ref50.setAttribute('y2',tyLeft(50));
+    ref50.setAttribute('stroke','#2563eb'); ref50.setAttribute('stroke-dasharray','6 6'); add(ref50);
+
+
+    // labels
+    function label(txt,x,y,anchor='middle'){
+      const t = document.createElementNS(plot.namespaceURI,'text');
+      t.setAttribute('x',x); t.setAttribute('y',y); t.setAttribute('text-anchor',anchor);
+      t.setAttribute('font-size','18'); t.setAttribute('fill','#111'); t.textContent = txt; g.appendChild(t);
+    }
+    label('Statewide % in', innerW/2, innerH+48);
+    // left title
+    const leftT = document.createElementNS(plot.namespaceURI,'text');
+    leftT.setAttribute('transform',`translate(-54, ${innerH/2}) rotate(-90)`);
+    leftT.setAttribute('text-anchor','middle'); leftT.setAttribute('font-size','18'); leftT.textContent='Win confidence (p)';
+    g.appendChild(leftT);
+    // right title
+    const rightT = document.createElementNS(plot.namespaceURI,'text');
+    rightT.setAttribute('transform',`translate(${innerW+64}, ${innerH/2}) rotate(90)`);
+    rightT.setAttribute('text-anchor','middle'); rightT.setAttribute('font-size','18');
+    rightT.textContent='Statewide margin (pp) = Harris% − Trump%';
+    g.appendChild(rightT);
+
+    // x ticks (every 10)
+    for (let x=0;x<=100;x+=10){
+      const t = document.createElementNS(plot.namespaceURI,'text');
+      t.setAttribute('x',tx(x)); t.setAttribute('y',innerH+24); t.setAttribute('text-anchor','middle');
+      t.setAttribute('font-size','14'); t.textContent = String(x);
+      g.appendChild(t);
+    }
+    // right ticks (dynamic)
+    const min = RIGHT_MIN, max = RIGHT_MAX;
+    const span = max - min;
+    const step = span > 80 ? 10 : 5;
+    for (let pp = min; pp <= max; pp += step){
+      const t = document.createElementNS(plot.namespaceURI,'text');
+      t.setAttribute('x', innerW + 8);
+      t.setAttribute('y', tyRight(pp) + 5);
+      t.setAttribute('text-anchor', 'start');
+      t.setAttribute('font-size', '12');
+      t.textContent = String(pp);
+      g.appendChild(t);
+    }
+    // --- NEW: blue dashed line at margin = 0 (only if visible) ---
+    if (RIGHT_MIN <= 0 && 0 <= RIGHT_MAX) {
+      const y0 = tyRight(0);
+      const z  = document.createElementNS(plot.namespaceURI, 'line');
+      z.setAttribute('x1', 0);
+      z.setAttribute('x2', innerW);
+      z.setAttribute('y1', y0);
+      z.setAttribute('y2', y0);
+      z.setAttribute('stroke', '#1e66ff');            // blue
+      z.setAttribute('stroke-width', '1.5');
+      z.setAttribute('stroke-dasharray', '6 4');      // dashed
+      z.setAttribute('opacity', '0.9');
+      g.appendChild(z);
+    }
+
+  }
+
+  function plotLine(xs, ys){
+    if (!xs?.length || !ys?.length) return;
+    const d = [];
+    for (let k=0;k<xs.length;k++){
+      const x = Number(xs[k]), y = Number(ys[k]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const X = tx(x), Y = tyRight(y);
+      d.push(`${d.length?'L':'M'} ${X.toFixed(2)} ${Y.toFixed(2)}`);
+    }
+    const p = document.createElementNS(plot.namespaceURI,'path');
+    p.setAttribute('d', d.join(' ')); p.setAttribute('class','lineMargin'); g.appendChild(p);
+  }
+
+  function plotScatter(xs, ys, cls, marker='circle'){
+    if (!xs?.length || !ys?.length) return;
+    for (let k=0;k<xs.length;k++){
+      const x=Number(xs[k]), y=Number(ys[k]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const X = tx(x), Y = tyLeft(y);
+      let node;
+      if (marker==='square'){
+        node = document.createElementNS(plot.namespaceURI,'rect');
+        const s=10; node.setAttribute('x', X-s/2); node.setAttribute('y', Y-s/2); node.setAttribute('width', s); node.setAttribute('height', s);
+      } else if (marker==='tri'){
+        const s=10;
+        const p1=`${X},${Y-6}`, p2=`${X-6},${Y+6}`, p3=`${X+6},${Y+6}`;
+        node = document.createElementNS(plot.namespaceURI,'polygon');
+        node.setAttribute('points', `${p1} ${p2} ${p3}`);
+      } else {
+        node = document.createElementNS(plot.namespaceURI,'circle');
+        node.setAttribute('cx', X); node.setAttribute('cy', Y); node.setAttribute('r', 5.5);
+      }
+      node.setAttribute('class', `pt ${cls}`);
+      g.appendChild(node);
+    }
+  }
+
+  // ---------- Data + wiring both panes ----------
+  const xInEl = document.getElementById('xIn');
+  const yLeaderEl = document.getElementById('yLeader');
+  const yLeaderRawEl = document.getElementById('yLeaderRaw');
+  const leaderPartyEl = document.getElementById('leaderParty');
+  const yTrailerEl = document.getElementById('yTrailer');
+  const yTrailerRawEl = document.getElementById('yTrailerRaw');
+  const trailerPartyEl = document.getElementById('trailerParty');
+  const yMarginEl = document.getElementById('yMargin');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const animateBtn = document.getElementById('animateBtn');
+  const idxEl = document.getElementById('idx');
+  const totalEl = document.getElementById('total');
+  const metaPill = document.getElementById('metaPill');
+
+  function fmt(v,d=2){ const n=Number(v); return Number.isFinite(n) ? n.toFixed(d) : '—'; }
+  function partyFromColor(color){
+    if (!color) return null; const c=String(color).toLowerCase();
+    if (c.includes('red')) return 'Republican';
+    if (c.includes('blue')) return 'Democratic';
+    return null;
+  }
+  function partyChip(color, marker){
+    const party = partyFromColor(color) || '—';
+    const sw = color || '#666';
+    return `<span class="party"><span class="swatch" style="background:${sw}"></span>${party}</span>`;
+  }
+
+
+  function putSeries(map, series, prefix){
+    const xs = Array.isArray(series.x)?series.x:[], ys=Array.isArray(series.y)?series.y:[],
+          colors=Array.isArray(series.color)?series.color:[], markers=Array.isArray(series.marker)?series.marker:[];
+    for (let k=0;k<xs.length;k++){
+      const x=Number(xs[k]); if (!Number.isFinite(x)) continue;
+      const xr = Number(x.toFixed(3));
+      const row = map.get(xr) || {x:xr, leader_y:null,trailer_y:null,leader_raw_y:null,trailer_raw_y:null,margin_y:null,
+                                  leader_color:null,leader_marker:null,trailer_color:null,trailer_marker:null};
+      const y = Number(ys[k]);
+      if (Number.isFinite(y)){
+        if (prefix==='leader') row.leader_y=y;
+        else if (prefix==='trailer') row.trailer_y=y;
+        else if (prefix==='leader_raw') row.leader_raw_y=y;
+        else if (prefix==='trailer_raw') row.trailer_raw_y=y;
+        else if (prefix==='margin') row.margin_y=y;
+      }
+      const color = colors[k], marker = markers[k];
+      if (prefix.startsWith('leader')){
+        if (color) row.leader_color=color; if (marker) row.leader_marker=marker;
+      } else if (prefix.startsWith('trailer')){
+        if (color) row.trailer_color=color; if (marker) row.trailer_marker=marker;
+      }
+      map.set(xr,row);
+    }
+  }
+  function buildRows(payload){
+    const S = payload?.series || {};
+    const map = new Map();
+    putSeries(map, S.leader || {}, 'leader');
+    putSeries(map, S.trailer || {}, 'trailer');
+    putSeries(map, S.leader_raw || {}, 'leader_raw');
+    putSeries(map, S.trailer_raw || {}, 'trailer_raw');
+    putSeries(map, S.statewide_margin_pp || {}, 'margin');
+    return Array.from(map.values()).sort((a,b)=>a.x-b.x);
+  }
+
+  function repWinPercent(r){
+    const lp  = partyFromColor(r.leader_color);
+    const tp  = partyFromColor(r.trailer_color);
+    if (lp==='Republican') return Number(r.leader_y);
+    if (tp==='Republican') return Number(r.trailer_y);
+    if (Number.isFinite(r.margin_y)){
+      if (r.margin_y > 0) return Number(r.trailer_y); // Harris ahead → GOP is trailer
+      if (r.margin_y < 0) return Number(r.leader_y);
+    }
+    if (lp==='Democratic') return 100 - (Number(r.leader_y) || 50);
+    return Number(r.leader_y) || 50;
+  }
+
+  let rows=[], i=0, timer=null;
+  function renderRow(){
+    const total = rows.length; totalEl.textContent = total;
+    if (!total){ [xInEl,yLeaderEl,yLeaderRawEl,leaderPartyEl,yTrailerEl,yTrailerRawEl,trailerPartyEl,yMarginEl]
+      .forEach(n=>n.textContent='(no data)'); idxEl.textContent='0'; setNeedle(50); return; }
+    if (i<0) i=0; if (i>=total) i=total-1;
+    const r = rows[i];
+    // Big readouts above the gauge
+    bigXEl.textContent = fmt(r.x,2) + ' %';
+    const mval = Number(r.margin_y);
+    if (Number.isFinite(mval)){
+        bigMarginEl.textContent = Math.abs(mval).toFixed(2) + ' %';
+        bigMarginEl.style.color = (mval >= 0) ? '#1d4ed8' : '#ef4444';
+    } else {
+      bigMarginEl.textContent = '—';
+      bigMarginEl.style.color = '#111';
+    }
+
+    xInEl.textContent = fmt(r.x,2)+' %';
+    yLeaderEl.textContent = fmt(r.leader_y,2)+' p';
+    yLeaderRawEl.textContent = fmt(r.leader_raw_y,2)+' p';
+    leaderPartyEl.innerHTML = partyChip(r.leader_color, r.leader_marker);
+    yTrailerEl.textContent = fmt(r.trailer_y,2)+' p';
+    yTrailerRawEl.textContent = fmt(r.trailer_raw_y,2)+' p';
+    trailerPartyEl.innerHTML = partyChip(r.trailer_color, r.trailer_marker);
+    yMarginEl.textContent = fmt(r.margin_y,3)+' pp';
+    idxEl.textContent = String(i+1);
+    setNeedle(repWinPercent(r));
+    drawCursorAt(r.x);
+
+  }
+
+  function drawPlotFromJSON(payload){
+    g.innerHTML = '';
+    setRightScaleByData(payload);
+    axis();
+
+    const S = payload?.series || {};
+
+    // --- RAW triangles FIRST (behind) ---
+    if (S.leader_raw){
+      const demX=[], demY=[], repX=[], repY=[];
+      const xs=S.leader_raw.x||[], ys=S.leader_raw.y||[], cs=S.leader_raw.color||[];
+      for (let k=0;k<xs.length;k++){
+        const c=(cs[k]||'').toLowerCase();
+        if (c.includes('red')){ repX.push(xs[k]); repY.push(ys[k]); }
+        else if (c.includes('blue')){ demX.push(xs[k]); demY.push(ys[k]); }
+      }
+      plotScatter(repX, repY, 'rep', 'tri');   // (unchanged class/color)
+      plotScatter(demX, demY, 'dem', 'tri');   // (unchanged class/color)
+    }
+    if (S.trailer_raw){
+      const demX=[], demY=[], repX=[], repY=[];
+      const xs=S.trailer_raw.x||[], ys=S.trailer_raw.y||[], cs=S.trailer_raw.color||[];
+      for (let k=0;k<xs.length;k++){
+        const c=(cs[k]||'').toLowerCase();
+        if (c.includes('red')){ repX.push(xs[k]); repY.push(ys[k]); }
+        else if (c.includes('blue')){ demX.push(xs[k]); demY.push(ys[k]); }
+      }
+      plotScatter(repX, repY, 'rep', 'tri');   // (unchanged class/color)
+      plotScatter(demX, demY, 'dem', 'tri');   // (unchanged class/color)
+    }
+
+    // --- ADJUSTED (non-raw) NEXT (on top of raw) ---
+    // Leader — solid party colors, circle
+    if (S.leader){
+      const xs = S.leader.x || [], ys = S.leader.y || [], cs = S.leader.color || [];
+      const repX=[], repY=[], demX=[], demY=[];
+      for (let k=0;k<xs.length;k++){
+        const c = (cs[k]||'').toLowerCase();
+        if (c.includes('red')) { repX.push(xs[k]); repY.push(ys[k]); }
+        else if (c.includes('blue')) { demX.push(xs[k]); demY.push(ys[k]); }
+      }
+      plotScatter(repX, repY, 'repStrong', 'circle');  // solid red
+      plotScatter(demX, demY, 'demStrong', 'circle');  // solid blue
+    }
+
+    // Trailer — solid party colors, square
+    if (S.trailer){
+      const xs = S.trailer.x || [], ys = S.trailer.y || [], cs = S.trailer.color || [];
+      const repX=[], repY=[], demX=[], demY=[];
+      for (let k=0;k<xs.length;k++){
+        const c = (cs[k]||'').toLowerCase();
+        if (c.includes('red')) { repX.push(xs[k]); repY.push(ys[k]); }
+        else if (c.includes('blue')) { demX.push(xs[k]); demY.push(ys[k]); }
+      }
+      plotScatter(repX, repY, 'repStrong', 'square');  // solid red
+      plotScatter(demX, demY, 'demStrong', 'square');  // solid blue
+    }
+
+    // --- Margin line (leave where you had it; no color changes) ---
+    if (S.statewide_margin_pp){
+      plotLine(S.statewide_margin_pp.x, S.statewide_margin_pp.y);
+    }
+    g.appendChild(cursorLine);
+    if (rows.length) drawCursorAt(rows[i].x);
+    if (rows.length) drawCursorAt(rows[i].x);
+  }
+
+  // UI wiring
+  loopBtn.addEventListener('click', ()=>{
+    isLoop = !isLoop;
+    loopBtn.textContent = isLoop ? 'Loop: On' : 'Loop: Off';
+    loopBtn.setAttribute('aria-pressed', String(isLoop));
+  });
+
+
+  function stopAnim(){ if (timer){ clearInterval(timer); timer=null; animateBtn.textContent='▶ Animate'; } }
+  prevBtn.addEventListener('click', ()=>{ stopAnim(); i=Math.max(0,i-1); renderRow(); });
+  nextBtn.addEventListener('click', ()=>{ stopAnim(); i=Math.min(rows.length-1,i+1); renderRow(); });
+  window.addEventListener('keydown', e=>{
+    if (e.key==='ArrowLeft'){ stopAnim(); i=Math.max(0,i-1); renderRow(); }
+    if (e.key==='ArrowRight'){ stopAnim(); i=Math.min(rows.length-1,i+1); renderRow(); }
+  });
+  animateBtn.addEventListener('click', ()=>{
+    if (timer){ stopAnim(); return; }
+    animateBtn.textContent='⏸ Stop';
+    timer=setInterval(()=>{
+      if (i < rows.length - 1){
+        i++;
+        renderRow();
+      } else {
+        if (isLoop){
+          i = 0;              // NEW: wrap to start
+          renderRow();
+        } else {
+          stopAnim();
+        }
+      }
+    }, 1000);
+  });
+
+  // --- NEW: state dropdown + loader ---
+  const stateSel = document.getElementById('stateSel');
+  const titleH1  = document.getElementById('titleH1');
+
+  function nameFromCode(code){
+    const m = {
+      az:'Arizona', ga:'Georgia', ia:'Iowa', mi:'Michigan',
+      pa:'Pennsylvania', nv:'Nevada', sc:'South Carolina', wi:'Wisconsin'
+    };
+    return m[code?.toLowerCase?.()] || code?.toUpperCase?.() || '—';
+  }
+
+  function resetPlayback(){
+    stopAnim?.();
+    i = 0;
+  }
+
+  function bootFromPayload(payload){
+    // top pills
+    const st = (payload?.meta?.state || '').toString().toUpperCase();
+    metaPill.textContent = (st || stateSel.value.toUpperCase()) +
+      (payload?.meta?.input_csv ? (' • ' + payload.meta.input_csv) : '');
+
+    // rebuild rows + redraw
+    rows = buildRows(payload);
+    renderRow();
+    drawPlotFromJSON(payload);
+  }
+
+  async function loadSelected(stateCode){
+    try{
+      const res = await fetch(`/data?state=${encodeURIComponent(stateCode)}`);
+      const payload = await res.json();
+      // Update title, aria-labels
+      const nice = nameFromCode(stateCode);
+      titleH1.textContent = nice;
+      document.getElementById('stampState').textContent = nameFromCode(stateCode).toUpperCase();
+      document.getElementById('plot')?.setAttribute('aria-label', `${stateCode.toUpperCase()} plot`);
+      document.getElementById('gauge')?.setAttribute('aria-label', `${stateCode.toUpperCase()} win probability gauge`);
+      resetPlayback();
+      bootFromPayload(payload);
+    }catch(e){
+      console.error(e);
+    }
+  }
+
+  // Wire dropdown
+  stateSel.addEventListener('change', ()=> loadSelected(stateSel.value));
+
+  // Initial boot (default MI)
+  loadSelected('mi');
+
+
+
+})();
+</script>
+</body>
+</html>
