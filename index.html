@@ -274,10 +274,10 @@
         <div class="label">Statewide % in (x)</div><div class="value" id="xIn">—</div>
         <div class="label">Leader win confidence (adjusted y)</div><div class="value" id="yLeader">—</div>
         <div class="label">Leader win confidence (raw y)</div><div class="value" id="yLeaderRaw">—</div>
-        <div class="label">Leader party / color / marker</div><div class="value" id="leaderParty">—</div>
+        
         <div class="label">Trailer win confidence (adjusted y)</div><div class="value" id="yTrailer">—</div>
         <div class="label">Trailer win confidence (raw y)</div><div class="value" id="yTrailerRaw">—</div>
-        <div class="label">Trailer party / color / marker</div><div class="value" id="trailerParty">—</div>
+
         <div class="label">Statewide margin (H − T) pp</div><div class="value" id="yMargin">—</div>
       </div>
 
@@ -613,10 +613,10 @@
   const xInEl = document.getElementById('xIn');
   const yLeaderEl = document.getElementById('yLeader');
   const yLeaderRawEl = document.getElementById('yLeaderRaw');
-  const leaderPartyEl = document.getElementById('leaderParty');
+
   const yTrailerEl = document.getElementById('yTrailer');
   const yTrailerRawEl = document.getElementById('yTrailerRaw');
-  const trailerPartyEl = document.getElementById('trailerParty');
+
   const yMarginEl = document.getElementById('yMargin');
   const prevBtn = document.getElementById('prevBtn');
   const nextBtn = document.getElementById('nextBtn');
@@ -709,10 +709,10 @@
     xInEl.textContent = fmt(r.x,2)+' %';
     yLeaderEl.textContent = fmt(r.leader_y,2)+' p';
     yLeaderRawEl.textContent = fmt(r.leader_raw_y,2)+' p';
-    leaderPartyEl.innerHTML = partyChip(r.leader_color, r.leader_marker);
+
     yTrailerEl.textContent = fmt(r.trailer_y,2)+' p';
     yTrailerRawEl.textContent = fmt(r.trailer_raw_y,2)+' p';
-    trailerPartyEl.innerHTML = partyChip(r.trailer_color, r.trailer_marker);
+
     yMarginEl.textContent = fmt(r.margin_y,3)+' pp';
     idxEl.textContent = String(i+1);
     setNeedle(repWinPercent(r));
