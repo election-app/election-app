@@ -1,4 +1,8 @@
+# Server + plotting
 Flask>=3.0,<3.1
-requests>=2.31,<3
-urllib3>=2,<3
-gunicorn>=21.2
+numpy>=2.0,<2.2
+pandas>=2.2,<2.3
+matplotlib>=3.9,<3.10
+
+# Optional: production WSGI server (use `flask run` locally)
+gunicorn>=22.0,<23
