@@ -271,14 +271,10 @@
 
 
       <div class="grid">
-        <div class="label">Statewide % in (x)</div><div class="value" id="xIn">—</div>
         <div class="label">Leader win confidence (adjusted y)</div><div class="value" id="yLeader">—</div>
         <div class="label">Leader win confidence (raw y)</div><div class="value" id="yLeaderRaw">—</div>
-        
         <div class="label">Trailer win confidence (adjusted y)</div><div class="value" id="yTrailer">—</div>
         <div class="label">Trailer win confidence (raw y)</div><div class="value" id="yTrailerRaw">—</div>
-
-        <div class="label">Statewide margin (H − T) pp</div><div class="value" id="yMargin">—</div>
       </div>
 
       <div class="nav">
@@ -610,14 +606,10 @@
   }
 
   // ---------- Data + wiring both panes ----------
-  const xInEl = document.getElementById('xIn');
   const yLeaderEl = document.getElementById('yLeader');
   const yLeaderRawEl = document.getElementById('yLeaderRaw');
-
   const yTrailerEl = document.getElementById('yTrailer');
   const yTrailerRawEl = document.getElementById('yTrailerRaw');
-
-  const yMarginEl = document.getElementById('yMargin');
   const prevBtn = document.getElementById('prevBtn');
   const nextBtn = document.getElementById('nextBtn');
   const animateBtn = document.getElementById('animateBtn');
@@ -706,14 +698,10 @@
       bigMarginEl.style.color = '#111';
     }
 
-    xInEl.textContent = fmt(r.x,2)+' %';
     yLeaderEl.textContent = fmt(r.leader_y,2)+' p';
     yLeaderRawEl.textContent = fmt(r.leader_raw_y,2)+' p';
-
     yTrailerEl.textContent = fmt(r.trailer_y,2)+' p';
     yTrailerRawEl.textContent = fmt(r.trailer_raw_y,2)+' p';
-
-    yMarginEl.textContent = fmt(r.margin_y,3)+' pp';
     idxEl.textContent = String(i+1);
     setNeedle(repWinPercent(r));
     drawCursorAt(r.x);
