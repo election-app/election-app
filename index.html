@@ -242,6 +242,13 @@
           <option value="nv">NV</option>
           <option value="sc">SC</option>
           <option value="wi">WI</option>
+          <option value="mi2020">MI2020</option>
+          <option value="az2020">AZ2020</option>
+          <option value="ga2020">GA2020</option>
+          <option value="pa2020">PA2020</option>
+          <option value="nv2020">NV2020</option>
+          <option value="sc2020">SC2020</option>
+          <option value="wi2020">WI2020</option>
         </select>
       </div>
     </header>
@@ -1050,7 +1057,8 @@
         renderRow();
       } else {
         if (isLoop){
-          i = 0;              // NEW: wrap to start
+          i = 0;
+          drawCombineNotches();   // ← reset notches on loop restart
           renderRow();
         } else {
           stopAnim();
@@ -1060,7 +1068,10 @@
   });
 
   // --- NEW: state dropdown + loader ---
-  const stateSel = document.getElementById('stateSel');
+  const sel = document.getElementById('stateSel');
+  sel?.addEventListener('change', () => {
+    loadSelected(sel.value);   // e.g., "mi", "mi2020", "nv2020"
+  });
   const titleH1  = document.getElementById('titleH1');
 
   function nameFromCode(code){
@@ -1070,11 +1081,34 @@
     };
     return m[code?.toLowerCase?.()] || code?.toUpperCase?.() || '—';
   }
+  
+  function nameFromCode(code){
+    const base = String(code||'').toLowerCase().replace(/_?2020$/, '');
+    const m = { az:'Arizona', ga:'Georgia', ia:'Iowa', mi:'Michigan',
+                pa:'Pennsylvania', nv:'Nevada', sc:'South Carolina', wi:'Wisconsin' };
+    return m[base] || base.toUpperCase();
+  }
+  function yearFromCode(code){
+    return /_?2020$/i.test(String(code)) ? '2020' : '2024';
+  }
+  // Map select value → actual JSON filename you have on disk.
+  // If value ends with "_2020" use "..._[state]_2020.json"
+  // If value ends with "2020" (no underscore) use "..._[state]2020.json"
+  // Otherwise use "..._[state].json"
+  function fileFromCode(code){
+    const c = String(code||'').toLowerCase();
+    const base = c.replace(/_?2020$/, '');
+    if (/_2020$/i.test(c)) return `statewide_plot_data_${base}_2020.json`;
+    if (/2020$/i.test(c))  return `statewide_plot_data_${base}2020.json`;
+    return `statewide_plot_data_${base}.json`;
+  }
 
   function resetPlayback(){
     stopAnim?.();
     i = 0;
+    drawCombineNotches();   // ← reset the outside notches + memory
   }
+
 
   function bootFromPayload(payload){
     // top pills
@@ -1088,22 +1122,38 @@
     drawPlotFromJSON(payload);
   }
 
+
   async function loadSelected(stateCode){
     try{
-      const res = await fetch(`/data?state=${encodeURIComponent(stateCode)}`);
-      const payload = await res.json();
-      // Update title, aria-labels
+      const url = fileFromCode(stateCode);
+      const res = await fetch(url);
+      const payload = await res.json();     // ← now real JSON, not HTML
+
+      // Title + stamp
       const nice = nameFromCode(stateCode);
-      titleH1.textContent = nice;
-      document.getElementById('stampState').textContent = nameFromCode(stateCode).toUpperCase();
-      document.getElementById('plot')?.setAttribute('aria-label', `${stateCode.toUpperCase()} plot`);
-      document.getElementById('gauge')?.setAttribute('aria-label', `${stateCode.toUpperCase()} win probability gauge`);
-      resetPlayback();
+      const yr   = yearFromCode(stateCode);
+      const titleH1 = document.getElementById('titleH1');
+      if (titleH1) titleH1.textContent = nice;
+      const stampPrefixEl = document.querySelector('.stampPrefix');
+      const stampStateEl  = document.getElementById('stampState');
+      if (stampPrefixEl) stampPrefixEl.textContent = `${yr} Presidential Race in`;
+      if (stampStateEl)  stampStateEl.textContent  = nice;
+
+      // Optional: show actual filename in the pill
+      const pill = document.querySelector('.pill code');
+      if (pill) pill.textContent = url;
+
+      // Reset + render
+      resetPlayback?.();
+      drawCombineNotches();  
       bootFromPayload(payload);
-    }catch(e){
-      console.error(e);
+    }catch(err){
+      console.error(err);
+      alert(`Could not load ${fileFromCode(stateCode)}. Make sure the file is next to index.html.`);
     }
   }
+
+
 
   // Wire dropdown
   stateSel.addEventListener('change', ()=> loadSelected(stateSel.value));
@@ -1114,6 +1164,7 @@
 
 
 })();
+document.addEventListener('DOMContentLoaded', () => { const sel = document.getElementById('stateSel'); if (sel) loadSelected(sel.value || 'mi'); });
 </script>
 </body>
 </html>
