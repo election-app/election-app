@@ -171,11 +171,59 @@
     }
     .stateStamp{
       text-align:center;
-      margin-top:50px;
+      margin-top:116px;
       font-weight:800;
       font-size:56px;         /* tweak to taste */
       letter-spacing:.04em;
       color:#334155;
+    }
+    /* --- Combine-style outside notches --- */
+    .notch { stroke-linecap: round; stroke-width: 3; }
+
+    .notch.grey    { stroke: #6b7280; opacity: 0.25; }   /* transparent grey (base) */
+    .notch.yellow  { stroke: #facc15; opacity: 0.35; }   /* faded yellow (base)  */
+
+    .notch.active.grey   { opacity: 0.95; }              /* full grey when lit    */
+    .notch.active.yellow { stroke: #ffd000; opacity: 1; filter: url(#sparkle); } /* bright + glow */
+    /* --- Combine-style outside notches (super awesome edition) --- */
+    .notch{
+      stroke-linecap: round;
+      stroke-width: 6;                 /* thicker */
+      paint-order: stroke;             /* draw stroke on top to keep it crisp */
+      filter: none;                    /* base: no glow */
+      stroke-dasharray: 16 120;        /* gives us room for shimmer */
+      stroke-linejoin: round;
+      opacity: 0.95;                   /* strong base presence */
+    }
+
+    .notch.grey{
+      /* transparent grey (base), with metal-ish gradient */
+      stroke: url(#notchGradGray);
+      opacity: 0.25;                   /* requested “transparent grey” */
+    }
+    .notch.yellow{
+      /* faded yellow (base), with warm gradient */
+      stroke: url(#notchGradYellow);
+      opacity: 0.45;                   /* a touch stronger than before so it reads */
+    }
+
+    /* When lit: turn on glow + full brightness */
+    .notch.active.grey{
+      opacity: 1;
+      filter: url(#notchGlowGray);     /* subtle halo */
+    }
+
+    .notch.active.yellow{
+      opacity: 1;
+      filter: url(#notchGlowYellow);   /* bright bloom */
+      /* shimmery energy sweep */
+      animation: notchShimmer 1.1s linear infinite;
+    }
+
+    /* ⚡ Shimmer pass travels along the short stroke for lit yellow notches */
+    @keyframes notchShimmer{
+      0%   { stroke-dashoffset: 0;    }
+      100% { stroke-dashoffset: -136; }
     }
 
 </style>
@@ -252,8 +300,12 @@
               <path id="bandFull" fill="none" stroke="url(#gradFull)" stroke-width="22" stroke-linecap="round"/>
               
               <!-- Ticks -->
+
               <g id="ticks"></g>
-              
+
+              <!-- Combine-style outside notches -->
+              <g id="combNotches"></g>
+
               <!-- Needle -->
               <g id="needle" class="needle" filter="url(#needleShadow)">
                   <path d="M292,260 L308,260 L302.5,238 L300.6,102 L299.4,102 L297.5,238 Z"
@@ -265,16 +317,76 @@
                   <circle cx="300" cy="260" r="2.2" fill="#ffffff"/>
               </g>
           </g>
+          <filter id="sparkle" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur"/>
+            <feColorMatrix in="blur" type="matrix"
+              values="1 0 0 0 0
+                      0 1 0 0 0
+                      0 0 1 0 0
+                      0 0 0 14 -6" result="glow"/>
+            <feMerge>
+              <feMergeNode in="glow"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+          <!-- 🔆 Extra glow for lit notches -->
+          <filter id="notchGlowYellow" x="-120%" y="-120%" width="340%" height="340%">
+            <!-- bloom in yellow -->
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.6" result="b1"/>
+            <feColorMatrix in="b1" type="matrix"
+              values="1 0 0 0 0.0
+                      0 1 0 0 0.0
+                      0 0 1 0 0.0
+                      0 0 0 12 -4" result="glow1"/>
+            <feMerge>
+              <feMergeNode in="glow1"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+
+          <!-- 🌟 Softer gray halo when grey notches are lit -->
+          <filter id="notchGlowGray" x="-120%" y="-120%" width="340%" height="340%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" result="b2"/>
+            <feColorMatrix in="b2" type="matrix"
+              values="1 0 0 0 0
+                      0 1 0 0 0
+                      0 0 1 0 0
+                      0 0 0 8 -3" result="glow2"/>
+            <feMerge>
+              <feMergeNode in="glow2"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+
+          <!-- ✨ Subtle stroke gradient for yellow notches -->
+          <linearGradient id="notchGradYellow" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+            <stop offset="0%"  stop-color="#ffe88a"/>
+            <stop offset="50%" stop-color="#ffd000"/>
+            <stop offset="100%" stop-color="#ffb300"/>
+          </linearGradient>
+
+          <!-- 🧊 Gentle metal-ish gradient for gray notches -->
+          <linearGradient id="notchGradGray" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+            <stop offset="0%"  stop-color="#a3a8b3"/>
+            <stop offset="50%" stop-color="#7c8392"/>
+            <stop offset="100%" stop-color="#9aa0aa"/>
+          </linearGradient>
+
+
         </svg>
       </div>
 
 
 
       <div class="grid">
+        <div class="label">Statewide % in (x)</div><div class="value" id="xIn">—</div>
         <div class="label">Leader win confidence (adjusted y)</div><div class="value" id="yLeader">—</div>
         <div class="label">Leader win confidence (raw y)</div><div class="value" id="yLeaderRaw">—</div>
+        <div class="label">Leader party / color / marker</div><div class="value" id="leaderParty">—</div>
         <div class="label">Trailer win confidence (adjusted y)</div><div class="value" id="yTrailer">—</div>
         <div class="label">Trailer win confidence (raw y)</div><div class="value" id="yTrailerRaw">—</div>
+        <div class="label">Trailer party / color / marker</div><div class="value" id="trailerParty">—</div>
+        <div class="label">Statewide margin (H − T) pp</div><div class="value" id="yMargin">—</div>
       </div>
 
       <div class="nav">
@@ -325,6 +437,50 @@
   const ticksG = document.getElementById('ticks');
   const needle = document.getElementById('needle');
 
+  // --- Needle oscillation (natural, irregular) ---
+  let currentAngle = 0;       // what the needle is actually showing now
+  let targetAngle  = 0;       // where the needle wants to settle (from data)
+  let oscReq = null;
+  let oscPhase = Math.random() * Math.PI * 2;
+  let oscDrift = Math.random() * 1000;  // slow drift seed
+  let lastT = 0;
+
+  function startNeedleOscillation(){
+    if (oscReq) return; // already running
+
+    const loop = (t) => {
+      if (!lastT) lastT = t;
+      const dt = (t - lastT) / 1000; // seconds since last frame
+      lastT = t;
+
+      // Slow, irregular frequency & amplitude modulation to avoid perfect periodic motion
+      oscDrift += dt * 0.28;                              // very slow drift
+      const baseHz = 0.7 + 0.8 * Math.sin(oscDrift * 0.9);
+      const ampDeg = 2.2 + 1.8 * Math.sin(oscDrift * 0.53 + 1.3);
+
+      // Advance phase at the (slowly varying) rate
+      oscPhase += dt * 2 * Math.PI * Math.max(0.25, baseHz); // was 0.15
+
+
+
+      // Irregular wobble = two sines + tiny noise
+      const wobble =
+        Math.sin(oscPhase) * ampDeg +
+        Math.sin(oscPhase * 0.37 + 1.1) * (ampDeg * 0.35) +
+        (Math.random() - 0.5) * 0.20; // was 0.12
+
+
+      // Gentle spring toward target angle (keeps the wobble centered on the value)
+      currentAngle += (targetAngle - currentAngle) * Math.min(1, dt * 7); // was *5
+
+      needle.style.transform = `rotate(${(currentAngle + wobble).toFixed(3)}deg)`;
+      oscReq = requestAnimationFrame(loop);
+    };
+
+    oscReq = requestAnimationFrame(loop);
+  }
+
+  
   function arcPath(startDeg, endDeg){
     const sd = startDeg * Math.PI/180, ed = endDeg * Math.PI/180;
     const sx = CX + R * Math.sin(sd), sy = CY - R * Math.cos(sd);
@@ -340,6 +496,82 @@
     const x2 = CX + rOut * sin, y2 = CY - rOut * cos;
     return {x1,y1,x2,y2};
   }
+  const combNotchesG = document.getElementById('combNotches');
+
+
+  // --- Memory of crossed thresholds (persists while current state is loaded) ---
+  const notchHistory = {
+    rep: new Set(),  // thresholds (numbers) crossed by GOP
+    dem: new Set()   // thresholds (numbers) crossed by DEM
+  };
+
+  function resetNotchHistory(){
+    notchHistory.rep.clear();
+    notchHistory.dem.clear();
+  }
+
+  // Toggle notch activation based on current GOP% (DEM% = 100 - GOP%)
+  // Toggle notch activation based on current GOP% (DEM% = 100 - GOP%).
+  // Once crossed, thresholds remain lit (stored in notchHistory).
+  function updateNotches(repPct){
+    const rep = Number(repPct) || 50;
+    const dem = 100 - rep;
+
+    // 1) Update the memory sets for this frame
+    combNotchesG.querySelectorAll('.notch').forEach(n => {
+      const side   = n.dataset.side;            // 'rep' | 'dem'
+      const thresh = Number(n.dataset.thresh);  // numeric threshold
+      if (side === 'rep') {
+        if (rep >= thresh) notchHistory.rep.add(thresh);
+      } else {
+        if (dem >= thresh) notchHistory.dem.add(thresh);
+      }
+    });
+
+    // 2) Reflect memory in the DOM (lights stay on once crossed)
+    combNotchesG.querySelectorAll('.notch').forEach(n => {
+      const side   = n.dataset.side;
+      const thresh = Number(n.dataset.thresh);
+      const lit = side === 'rep'
+        ? notchHistory.rep.has(thresh)
+        : notchHistory.dem.has(thresh);
+      n.classList.toggle('active', !!lit);
+    });
+  }
+
+
+  // Build 5% notches from 50..95 on each side (DEM on left, GOP on right)
+  function drawCombineNotches(){
+    combNotchesG.innerHTML = '';
+    resetNotchHistory();
+    const thresholds = [50,55,60,65,70,75,80,85,90,95];
+
+    for (const t of thresholds){
+      // Right side (GOP) lives at pct = t
+      addNotch(t, 'rep', t <= 65 ? 'grey' : 'yellow');
+
+      // Left side (DEM) mirrored: pct = 100 - t
+      addNotch(100 - t, 'dem', t <= 65 ? 'grey' : 'yellow');
+    }
+  }
+
+  // Helper: make one short line outside the rim
+  function addNotch(pct, side, tone){
+    const rIn = R + 10, rOut = R + 24; // outside the band
+    const {x1,y1,x2,y2} = posFromPct(pct, rIn, rOut);
+    const ln = document.createElementNS('http://www.w3.org/2000/svg','line');
+    ln.setAttribute('x1', x1); ln.setAttribute('y1', y1);
+    ln.setAttribute('x2', x2); ln.setAttribute('y2', y2);
+    ln.setAttribute('class', `notch ${tone}`);
+    ln.dataset.side = side;          // 'rep' or 'dem'
+    ln.dataset.t = String(pct);      // store position (pct around arc)
+    ln.dataset.thresh = side === 'rep'
+      ? String(pct)                  // for GOP we compare against GOP%
+      : String(100 - pct);           // for DEM we compare against DEM% (== 100 - GOP%)
+    ln.dataset.tone = tone;          // 'grey' or 'yellow'
+    combNotchesG.appendChild(ln);
+  }
+
   function drawGauge(){
     document.getElementById('bandFull').setAttribute('d', arcPath(-90, 90));
     ticksG.innerHTML = '';
@@ -384,9 +616,17 @@
     if (!Number.isFinite(p)) p = 50;
     p = Math.max(0, Math.min(100, p));
     const angle = ((p - 50) / 50) * 90;
-    needle.style.transform = `rotate(${angle}deg)`;
+
+    // Update target. First call snaps the current to target to avoid jump.
+    if (!Number.isFinite(currentAngle)) currentAngle = angle;
+    targetAngle = angle;
+
+    // Ensure the oscillator is running
+    startNeedleOscillation();
   }
+
   drawGauge();
+  drawCombineNotches();
 
   // ---------- Right plot (pure SVG, JSON-driven) ----------
   const plot = document.getElementById('plot');
@@ -606,10 +846,14 @@
   }
 
   // ---------- Data + wiring both panes ----------
+  const xInEl = document.getElementById('xIn');
   const yLeaderEl = document.getElementById('yLeader');
   const yLeaderRawEl = document.getElementById('yLeaderRaw');
+  const leaderPartyEl = document.getElementById('leaderParty');
   const yTrailerEl = document.getElementById('yTrailer');
   const yTrailerRawEl = document.getElementById('yTrailerRaw');
+  const trailerPartyEl = document.getElementById('trailerParty');
+  const yMarginEl = document.getElementById('yMargin');
   const prevBtn = document.getElementById('prevBtn');
   const nextBtn = document.getElementById('nextBtn');
   const animateBtn = document.getElementById('animateBtn');
@@ -698,12 +942,19 @@
       bigMarginEl.style.color = '#111';
     }
 
+    xInEl.textContent = fmt(r.x,2)+' %';
     yLeaderEl.textContent = fmt(r.leader_y,2)+' p';
     yLeaderRawEl.textContent = fmt(r.leader_raw_y,2)+' p';
+    leaderPartyEl.innerHTML = partyChip(r.leader_color, r.leader_marker);
     yTrailerEl.textContent = fmt(r.trailer_y,2)+' p';
     yTrailerRawEl.textContent = fmt(r.trailer_raw_y,2)+' p';
+    trailerPartyEl.innerHTML = partyChip(r.trailer_color, r.trailer_marker);
+    yMarginEl.textContent = fmt(r.margin_y,3)+' pp';
     idxEl.textContent = String(i+1);
     setNeedle(repWinPercent(r));
+    const repP = repWinPercent(r) || 50;
+    updateNotches(repP);
+
     drawCursorAt(r.x);
 
   }
