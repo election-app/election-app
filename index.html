@@ -225,6 +225,9 @@
       0%   { stroke-dashoffset: 0;    }
       100% { stroke-dashoffset: -136; }
     }
+    /* Party-colored lines for win probability (left Y-axis) */
+    .lineRep{ fill:none; stroke:#ef4444; stroke-width:2.5 }
+    .lineDem{ fill:none; stroke:#1d4ed8; stroke-width:2.5 }
 
 </style>
 </head>
@@ -412,8 +415,6 @@
         <div class="key">
           <div class="k"><span class="ci"></span> Leader (circle)</div>
           <div class="k"><span class="sq"></span> Trailer (square)</div>
-          <div class="k"><span class="cr"></span> Trump (red)</div>
-          <div class="k"><span class="cb"></span> Harris (blue)</div>
         </div>
         <svg id="plot" class="plot" viewBox="0 0 1200 675" aria-label="MI plot"></svg>
        </div>
@@ -555,10 +556,10 @@
 
     for (const t of thresholds){
       // Right side (GOP) lives at pct = t
-      addNotch(t, 'rep', t <= 65 ? 'grey' : 'yellow');
+      addNotch(t, 'rep', t <= 70 ? 'grey' : 'yellow');
 
       // Left side (DEM) mirrored: pct = 100 - t
-      addNotch(100 - t, 'dem', t <= 65 ? 'grey' : 'yellow');
+      addNotch(100 - t, 'dem', t <= 70 ? 'grey' : 'yellow');
     }
   }
 
@@ -814,6 +815,22 @@
     }
 
   }
+  
+  function plotLineLeft(xs, ys, cls){
+    if (!xs?.length || !ys?.length) return;
+    const d=[];
+    for (let k=0;k<xs.length;k++){
+      const x=Number(xs[k]), y=Number(ys[k]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const X = tx(x), Y = tyLeft(y);
+      d.push(`${d.length?'L':'M'} ${X.toFixed(2)} ${Y.toFixed(2)}`);
+    }
+    const p = document.createElementNS(plot.namespaceURI,'path');
+    p.setAttribute('d', d.join(' '));
+    p.setAttribute('class', cls);
+    g.appendChild(p);
+  }
+
 
   function plotLine(xs, ys){
     if (!xs?.length || !ys?.length) return;
@@ -970,7 +987,11 @@
     g.innerHTML = '';
     setRightScaleByData(payload);
     axis();
-
+    // Recompute rows for THIS payload so the party lines don't skip any x
+    const rowsLocal = buildRows(payload);
+     // keep globals in sync with what we're drawing
+     rows = rowsLocal;
+     if (i >= rows.length) i = Math.max(0, rows.length - 1);
     const S = payload?.series || {};
 
     // --- RAW triangles FIRST (behind) ---
@@ -996,6 +1017,32 @@
       plotScatter(repX, repY, 'rep', 'tri');   // (unchanged class/color)
       plotScatter(demX, demY, 'dem', 'tri');   // (unchanged class/color)
     }
+    // ===== NEW: continuous party lines (left Y) =====
+    // Use the already-built global 'rows' (x-sorted, merged series)
+    const repLX=[], repLY=[], demLX=[], demLY=[];
+    for (const r of rowsLocal){
+      const x = Number(r.x);
+      if (!Number.isFinite(x)) continue;
+
+      const lp = partyFromColor(r.leader_color);
+      const tp = partyFromColor(r.trailer_color);
+
+      if (lp === 'Republican' && Number.isFinite(r.leader_y)){
+        repLX.push(x); repLY.push(Number(r.leader_y));
+      } else if (tp === 'Republican' && Number.isFinite(r.trailer_y)){
+        repLX.push(x); repLY.push(Number(r.trailer_y));
+      }
+
+      if (lp === 'Democratic' && Number.isFinite(r.leader_y)){
+        demLX.push(x); demLY.push(Number(r.leader_y));
+      } else if (tp === 'Democratic' && Number.isFinite(r.trailer_y)){
+        demLX.push(x); demLY.push(Number(r.trailer_y));
+      }
+    }
+    plotLineLeft(repLX, repLY, 'lineRep');
+    plotLineLeft(demLX, demLY, 'lineDem');
+
+    // ===== END NEW =====
 
     // --- ADJUSTED (non-raw) NEXT (on top of raw) ---
     // Leader — solid party colors, circle
@@ -1028,9 +1075,11 @@
     if (S.statewide_margin_pp){
       plotLine(S.statewide_margin_pp.x, S.statewide_margin_pp.y);
     }
-    g.appendChild(cursorLine);
-    if (rows.length) drawCursorAt(rows[i].x);
-    if (rows.length) drawCursorAt(rows[i].x);
+     g.appendChild(cursorLine);
+     if (rowsLocal.length) {
+       const ix = Math.min(i, rowsLocal.length - 1);
+      drawCursorAt(rowsLocal[ix].x);
+     }
   }
 
   // UI wiring
@@ -1124,6 +1173,7 @@
 
 
   async function loadSelected(stateCode){
+      window.loadSelected = loadSelected;
     try{
       const url = fileFromCode(stateCode);
       const res = await fetch(url);
